@@ -108,6 +108,25 @@ export function Settings() {
             </div>
           </div>
         </div>
+
+        <div className="section">
+          <h3 className="section-title">運営の方へ</h3>
+          <div className="card">
+            <div style={{ padding: 16, textAlign: 'center' }}>
+              <p style={{ fontSize: 14, marginBottom: 8 }}>
+                運営としてご利用希望の方はXでDMください
+              </p>
+              <a
+                href="https://x.com/2016731JST"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--primary)', fontWeight: 500 }}
+              >
+                @2016731JST
+              </a>
+            </div>
+          </div>
+        </div>
       </div>
 
       <Modal

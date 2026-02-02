@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'アイドル特典券管理',
-        short_name: '特典券',
-        description: 'アイドルの特典券をオフラインで管理',
+        name: '推しチケ',
+        short_name: '推しチケ',
+        description: '特典券をスマートに',
         theme_color: '#ec4899',
         background_color: '#ffffff',
         display: 'standalone',
