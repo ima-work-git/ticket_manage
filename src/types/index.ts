@@ -107,5 +107,6 @@ export interface PendingTicket {
   // Filled when claimed
   claimedBy?: string;
   claimedByNickname?: string;
+  claimedByEmail?: string; // Google account email for reliable restoration
   claimedAt?: Date;
 }

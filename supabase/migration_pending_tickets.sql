@@ -17,6 +17,7 @@ create table public.pending_tickets (
   status text not null default 'pending' check (status in ('pending', 'claimed', 'expired')),
   claimed_by uuid references public.profiles,
   claimed_by_nickname text,
+  claimed_by_email text, -- Google account email for reliable ticket restoration
   claimed_at timestamptz
 );
 
@@ -24,6 +25,7 @@ create table public.pending_tickets (
 create index idx_pending_tickets_group on public.pending_tickets(group_id);
 create index idx_pending_tickets_status on public.pending_tickets(status);
 create index idx_pending_tickets_issued_by on public.pending_tickets(issued_by);
+create index idx_pending_tickets_email on public.pending_tickets(claimed_by_email);
 
 -- Enable RLS
 alter table public.pending_tickets enable row level security;
@@ -70,3 +72,9 @@ create policy "Users can insert own tickets"
   on public.tickets for insert
   to authenticated
   with check (owner_id = auth.uid());
+
+-- Allow users to query pending tickets by their email for restoration
+create policy "Users can view their own claimed tickets by email"
+  on public.pending_tickets for select
+  to authenticated
+  using (claimed_by_email = (select email from auth.users where id = auth.uid()));

@@ -9,10 +9,10 @@ import {
   formatBytes,
   type StorageStatus,
 } from '../utils/storage';
-import { restoreTicketsByNickname } from '../services/sync';
+import { restoreTicketsByEmail } from '../services/sync';
 
 export function Settings() {
-  const { user, supabaseUser, isOnline, updateNickname, syncNow, logout } = useAuth();
+  const { user, supabaseUser, isOnline, updateNickname, syncNow, logout, loginWithGoogle } = useAuth();
   const [showEditName, setShowEditName] = useState(false);
   const [nickname, setNickname] = useState(user?.nickname || '');
   const [saving, setSaving] = useState(false);
@@ -24,7 +24,6 @@ export function Settings() {
 
   // Restore modal
   const [showRestore, setShowRestore] = useState(false);
-  const [restoreNickname, setRestoreNickname] = useState('');
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState<{
     success: boolean;
@@ -48,13 +47,13 @@ export function Settings() {
   };
 
   const handleRestore = async () => {
-    if (!restoreNickname.trim()) return;
+    if (!supabaseUser?.email) return;
 
     setRestoring(true);
     setRestoreResult(null);
 
     try {
-      const result = await restoreTicketsByNickname(restoreNickname.trim());
+      const result = await restoreTicketsByEmail(supabaseUser.email);
       if (result.success) {
         setRestoreResult({
           success: true,
@@ -289,7 +288,6 @@ export function Settings() {
                 <button
                   className="btn btn-primary btn-full"
                   onClick={() => {
-                    setRestoreNickname(user?.nickname || '');
                     setRestoreResult(null);
                     setShowRestore(true);
                   }}
@@ -423,21 +421,30 @@ export function Settings() {
         onClose={() => setShowRestore(false)}
         title="チケット復元"
         footer={
-          <>
+          supabaseUser ? (
+            <>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowRestore(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleRestore}
+                disabled={restoring || !isOnline}
+              >
+                {restoring ? '復元中...' : '復元する'}
+              </button>
+            </>
+          ) : (
             <button
               className="btn btn-secondary"
               onClick={() => setShowRestore(false)}
             >
-              キャンセル
+              閉じる
             </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleRestore}
-              disabled={!restoreNickname.trim() || restoring || !isOnline}
-            >
-              {restoring ? '復元中...' : '復元する'}
-            </button>
-          </>
+          )
         }
       >
         <div>
@@ -456,21 +463,44 @@ export function Settings() {
             </div>
           )}
 
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
-            チケットを受け取った時のニックネームを入力してください。
-            運営が「受領確認」をスキャンしたチケットが復元されます。
-          </p>
+          {supabaseUser ? (
+            <>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                以下のGoogleアカウントで登録されたチケットを復元します。
+                運営が「受領確認」をスキャンしたチケットが復元されます。
+              </p>
 
-          <div className="form-group">
-            <label className="form-label">ニックネーム</label>
-            <input
-              type="text"
-              className="form-input"
-              value={restoreNickname}
-              onChange={(e) => setRestoreNickname(e.target.value)}
-              placeholder="チケット受取時のニックネーム"
-            />
-          </div>
+              <div
+                style={{
+                  padding: 12,
+                  background: 'var(--surface-secondary)',
+                  borderRadius: 8,
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  Googleアカウント
+                </div>
+                <div style={{ fontWeight: 500 }}>
+                  {supabaseUser.email}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                チケットを復元するには、チケット受取時に使用していたGoogleアカウントでログインしてください。
+              </p>
+
+              <button
+                className="btn btn-primary btn-full"
+                onClick={loginWithGoogle}
+                disabled={!isOnline}
+              >
+                Googleでログイン
+              </button>
+            </>
+          )}
 
           {restoreResult && (
             <div

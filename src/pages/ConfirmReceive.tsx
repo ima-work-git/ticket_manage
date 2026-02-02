@@ -58,6 +58,7 @@ export function ConfirmReceive() {
           status: 'claimed' as const,
           claimedBy: qrData.ownerId,
           claimedByNickname: qrData.ownerNickname,
+          claimedByEmail: qrData.ownerEmail, // Google email for reliable restoration
           claimedAt: new Date(),
         };
 
@@ -75,6 +76,7 @@ export function ConfirmReceive() {
           status: 'claimed',
           claimedBy: qrData.ownerId,
           claimedByNickname: qrData.ownerNickname,
+          claimedByEmail: qrData.ownerEmail, // Google email for reliable restoration
           claimedAt: new Date(),
         }, 'create');
       }

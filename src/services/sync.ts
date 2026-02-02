@@ -360,6 +360,7 @@ export async function syncPendingTicket(
           status: pendingTicket.status,
           claimed_by: pendingTicket.claimedBy,
           claimed_by_nickname: pendingTicket.claimedByNickname,
+          claimed_by_email: pendingTicket.claimedByEmail,
           claimed_at: pendingTicket.claimedAt?.toISOString(),
         };
 
@@ -504,6 +505,7 @@ export async function pullFromCloud(userId: string): Promise<void> {
             status: pt.status,
             claimedBy: pt.claimed_by,
             claimedByNickname: pt.claimed_by_nickname,
+            claimedByEmail: pt.claimed_by_email,
             claimedAt: pt.claimed_at ? new Date(pt.claimed_at) : undefined,
           };
           await db.pendingTickets.put(localPt);
@@ -625,7 +627,7 @@ export async function initializeSync(userId: string): Promise<void> {
   await pullFromCloud(userId);
 }
 
-// Restore tickets for a fan by nickname
+// Restore tickets for a fan by email
 // This is used when a fan clears their cache and needs to recover tickets
 export interface RestoreResult {
   success: boolean;
@@ -633,17 +635,17 @@ export interface RestoreResult {
   error?: string;
 }
 
-export async function restoreTicketsByNickname(nickname: string): Promise<RestoreResult> {
+export async function restoreTicketsByEmail(email: string): Promise<RestoreResult> {
   if (!isOnline || !supabase) {
     return { success: false, ticketsRestored: 0, error: 'オフラインです。インターネット接続を確認してください。' };
   }
 
   try {
-    // Search for pending tickets claimed by this nickname
+    // Search for pending tickets claimed by this email
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: pendingTickets, error } = await (supabase.from('pending_tickets') as any)
       .select('*')
-      .eq('claimed_by_nickname', nickname)
+      .eq('claimed_by_email', email)
       .eq('status', 'claimed');
 
     if (error) {
@@ -652,7 +654,7 @@ export async function restoreTicketsByNickname(nickname: string): Promise<Restor
     }
 
     if (!pendingTickets || pendingTickets.length === 0) {
-      return { success: false, ticketsRestored: 0, error: 'このニックネームで登録されたチケットが見つかりません' };
+      return { success: false, ticketsRestored: 0, error: 'このメールアドレスで登録されたチケットが見つかりません' };
     }
 
     let restoredCount = 0;

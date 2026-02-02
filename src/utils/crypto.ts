@@ -33,6 +33,7 @@ export interface ReceiveConfirmQRData {
   groupId: string;
   ownerId: string;
   ownerNickname: string;
+  ownerEmail?: string; // Google account email for reliable restoration
 }
 
 export type QRPayload =

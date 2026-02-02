@@ -22,7 +22,7 @@ import type { Ticket, ActivityLog, Staff } from '../types';
 
 export function Scan() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, supabaseUser } = useAuth();
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<{
     type: 'success' | 'error';
@@ -207,6 +207,7 @@ export function Scan() {
       groupId: result.groupId || result.ticket.groupId,
       ownerId: user.id,
       ownerNickname: user.nickname,
+      ownerEmail: supabaseUser?.email, // Google account email for reliable restoration
     };
 
     const payload = generateQRPayload('receive_confirm', qrData);
@@ -226,13 +227,14 @@ export function Scan() {
         groupId: result.groupId || result.ticket!.groupId,
         ownerId: user.id,
         ownerNickname: user.nickname,
+        ownerEmail: supabaseUser?.email,
       };
       const payload = generateQRPayload('receive_confirm', qrData);
       setConfirmQRPayload(payload);
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [showConfirmQR, result, user]);
+  }, [showConfirmQR, result, user, supabaseUser]);
 
   return (
     <Layout title="スキャン">
