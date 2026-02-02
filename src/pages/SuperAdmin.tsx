@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { Layout } from '../components/Layout';
 import { validateAdminKey, generateInviteToken, getInviteUrl } from '../utils/staffMode';
@@ -45,9 +45,45 @@ export function SuperAdmin() {
     );
   }
 
+  const adminKey = searchParams.get('key');
+
   return (
     <Layout title="スーパー管理者" showNav={false} showBack>
       <div className="container">
+        {/* Analytics link */}
+        <Link
+          to={`/analytics?key=${adminKey}`}
+          style={{ textDecoration: 'none', color: 'inherit' }}
+        >
+          <div className="card list-item-clickable mb-4">
+            <div className="flex items-center gap-3">
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, var(--primary), var(--secondary))',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 24, height: 24 }}>
+                  <path d="M18 20V10" />
+                  <path d="M12 20V4" />
+                  <path d="M6 20v-6" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <div className="card-title">分析ダッシュボード</div>
+                <div className="card-subtitle">サイト閲覧数・ユーザー登録数</div>
+              </div>
+              <span style={{ color: 'var(--text-secondary)' }}>→</span>
+            </div>
+          </div>
+        </Link>
+
         <div className="card">
           <h3 className="mb-4">運営スタッフ招待</h3>
           <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>

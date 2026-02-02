@@ -15,8 +15,10 @@ import { StaffManage } from './pages/StaffManage';
 import { Logs } from './pages/Logs';
 import { Settings } from './pages/Settings';
 import { SuperAdmin } from './pages/SuperAdmin';
+import { Analytics } from './pages/Analytics';
 import { StaffInvite } from './pages/StaffInvite';
 import { isStaffMode } from './utils/staffMode';
+import { usePageTracking } from './hooks/usePageTracking';
 
 function StaffRoute({ children }: { children: React.ReactNode }) {
   if (!isStaffMode()) {
@@ -27,6 +29,7 @@ function StaffRoute({ children }: { children: React.ReactNode }) {
 
 function AppRoutes() {
   const { user, loading } = useAuth();
+  usePageTracking(user?.id);
 
   if (loading) {
     return (
@@ -50,6 +53,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/staff-invite" element={<StaffInvite />} />
         <Route path="/super-admin" element={<SuperAdmin />} />
+        <Route path="/analytics" element={<Analytics />} />
         <Route path="*" element={<Login />} />
       </Routes>
     );
@@ -71,6 +75,7 @@ function AppRoutes() {
       <Route path="/manage/:id/logs" element={<StaffRoute><Logs /></StaffRoute>} />
       <Route path="/settings" element={<Settings />} />
       <Route path="/super-admin" element={<SuperAdmin />} />
+      <Route path="/analytics" element={<Analytics />} />
       <Route path="/staff-invite" element={<StaffInvite />} />
     </Routes>
   );
