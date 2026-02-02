@@ -8,19 +8,36 @@ export interface StorageStatus {
   usagePercent?: number;
 }
 
-export async function requestPersistentStorage(): Promise<boolean> {
+export interface PersistResult {
+  success: boolean;
+  persisted: boolean;
+  reason?: 'granted' | 'denied' | 'not_supported' | 'error';
+}
+
+export async function requestPersistentStorage(): Promise<PersistResult> {
   if (!navigator.storage?.persist) {
     console.log('Persistent storage not supported');
-    return false;
+    return { success: false, persisted: false, reason: 'not_supported' };
   }
 
   try {
+    // First check current status
+    const alreadyPersisted = await navigator.storage.persisted();
+    if (alreadyPersisted) {
+      return { success: true, persisted: true, reason: 'granted' };
+    }
+
+    // Request persistence
     const persisted = await navigator.storage.persist();
     console.log(`Persistent storage ${persisted ? 'granted' : 'denied'}`);
-    return persisted;
+    return {
+      success: persisted,
+      persisted,
+      reason: persisted ? 'granted' : 'denied',
+    };
   } catch (error) {
     console.error('Failed to request persistent storage:', error);
-    return false;
+    return { success: false, persisted: false, reason: 'error' };
   }
 }
 

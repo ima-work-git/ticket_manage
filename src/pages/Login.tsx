@@ -34,23 +34,51 @@ export function Login() {
   // First-time user: Google login is mandatory
   const renderFirstTimeUI = () => (
     <>
-      <div
-        style={{
-          background: 'var(--surface-secondary)',
-          padding: 16,
-          borderRadius: 12,
-          marginBottom: 24,
-        }}
-      >
-        <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8 }}>
-          初回ログインにはGoogleアカウントが必要です
-        </p>
-        <ul style={{ fontSize: 13, color: 'var(--text-secondary)', paddingLeft: 20, margin: 0 }}>
-          <li>データがクラウドにバックアップされます</li>
-          <li>機種変更してもデータが引き継がれます</li>
-          <li>誤ってキャッシュクリアしても復元できます</li>
-        </ul>
-      </div>
+      {!isOnline ? (
+        // Offline and no local data - show helpful message
+        <div
+          style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid var(--error)',
+            padding: 16,
+            borderRadius: 12,
+            marginBottom: 24,
+          }}
+        >
+          <p style={{ fontSize: 14, color: 'var(--error)', marginBottom: 8, fontWeight: 500 }}>
+            インターネット接続が必要です
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            以下のいずれかの状態です：
+          </p>
+          <ul style={{ fontSize: 13, color: 'var(--text-secondary)', paddingLeft: 20, margin: 0 }}>
+            <li>初めてこのアプリを使う</li>
+            <li>ブラウザのデータが削除された</li>
+          </ul>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 12 }}>
+            インターネットに接続してGoogleでログインしてください。
+            過去に受け取ったチケットは復元できます。
+          </p>
+        </div>
+      ) : (
+        <div
+          style={{
+            background: 'var(--surface-secondary)',
+            padding: 16,
+            borderRadius: 12,
+            marginBottom: 24,
+          }}
+        >
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            初回ログインにはGoogleアカウントが必要です
+          </p>
+          <ul style={{ fontSize: 13, color: 'var(--text-secondary)', paddingLeft: 20, margin: 0 }}>
+            <li>データがクラウドにバックアップされます</li>
+            <li>機種変更してもデータが引き継がれます</li>
+            <li>誤ってキャッシュクリアしても復元できます</li>
+          </ul>
+        </div>
+      )}
 
       <button
         className="btn btn-primary btn-full"
@@ -61,6 +89,7 @@ export function Login() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 12,
+          opacity: isOnline ? 1 : 0.5,
         }}
       >
         <svg width="20" height="20" viewBox="0 0 24 24">
@@ -83,19 +112,6 @@ export function Login() {
         </svg>
         {loading ? 'ログイン中...' : 'Googleでログイン'}
       </button>
-
-      {!isOnline && (
-        <p
-          style={{
-            fontSize: 12,
-            color: 'var(--error)',
-            textAlign: 'center',
-            marginTop: 12,
-          }}
-        >
-          初回ログインにはインターネット接続が必要です
-        </p>
-      )}
     </>
   );
 

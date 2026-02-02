@@ -8,6 +8,7 @@ import {
   checkStorageStatus,
   formatBytes,
   type StorageStatus,
+  type PersistResult,
 } from '../utils/storage';
 import { restoreTicketsByEmail } from '../services/sync';
 
@@ -21,6 +22,7 @@ export function Settings() {
   // Storage status
   const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
   const [requestingPersist, setRequestingPersist] = useState(false);
+  const [persistResult, setPersistResult] = useState<PersistResult | null>(null);
 
   // Restore modal
   const [showRestore, setShowRestore] = useState(false);
@@ -37,8 +39,10 @@ export function Settings() {
 
   const handleRequestPersist = async () => {
     setRequestingPersist(true);
+    setPersistResult(null);
     try {
-      await requestPersistentStorage();
+      const result = await requestPersistentStorage();
+      setPersistResult(result);
       const status = await checkStorageStatus();
       setStorageStatus(status);
     } finally {
@@ -259,6 +263,35 @@ export function Settings() {
                     )}
                   </div>
                 </div>
+              </div>
+            )}
+            {persistResult && !persistResult.persisted && (
+              <div
+                style={{
+                  padding: 12,
+                  fontSize: 13,
+                  color: 'white',
+                  background: 'var(--warning)',
+                  margin: '0 16px 12px',
+                  borderRadius: 8,
+                }}
+              >
+                {persistResult.reason === 'denied' && (
+                  <>
+                    ブラウザに拒否されました。以下をお試しください：
+                    <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+                      <li>このアプリをホーム画面に追加する</li>
+                      <li>ブックマークに追加する</li>
+                      <li>通知を許可する</li>
+                    </ul>
+                  </>
+                )}
+                {persistResult.reason === 'not_supported' && (
+                  'このブラウザは永続ストレージに対応していません。Safari以外のブラウザをお試しください。'
+                )}
+                {persistResult.reason === 'error' && (
+                  'エラーが発生しました。ページを再読み込みしてお試しください。'
+                )}
               </div>
             )}
             <div
