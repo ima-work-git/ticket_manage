@@ -4,6 +4,7 @@ import { addDays } from 'date-fns';
 import { db } from '../db';
 import type { Ticket, ActivityLog, TicketTemplate, Group } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { syncTicket, syncActivityLog } from '../services/sync';
 
 export interface TicketWithDetails extends Ticket {
   template?: TicketTemplate;
@@ -40,7 +41,8 @@ export function useTickets(groupId?: string) {
         ticket.expiresAt &&
         new Date(ticket.expiresAt) < now
       ) {
-        await db.tickets.update(ticket.id, { status: 'expired' });
+        const updated = { ...ticket, status: 'expired' as const };
+        await syncTicket(updated, 'update');
         ticket.status = 'expired';
       }
     }
@@ -111,10 +113,8 @@ export function useTickets(groupId?: string) {
       createdAt: new Date(),
     };
 
-    await db.transaction('rw', [db.tickets, db.activityLogs], async () => {
-      await db.tickets.add(ticket);
-      await db.activityLogs.add(log);
-    });
+    await syncTicket(ticket, 'insert');
+    await syncActivityLog(log);
 
     await loadTickets();
     return ticket;
@@ -132,12 +132,15 @@ export function useTickets(groupId?: string) {
 
     const template = await db.ticketTemplates.get(ticket.templateId);
 
-    await db.tickets.update(ticketId, {
+    const updatedTicket: Ticket = {
+      ...ticket,
       status: 'used',
       consumedBy: user.id,
       consumedAt: new Date(),
       eventName,
-    });
+    };
+
+    await syncTicket(updatedTicket, 'update');
 
     const log: ActivityLog = {
       id: uuidv4(),
@@ -149,7 +152,7 @@ export function useTickets(groupId?: string) {
       metadata: { templateName: template?.name, eventName },
       createdAt: new Date(),
     };
-    await db.activityLogs.add(log);
+    await syncActivityLog(log);
 
     await loadTickets();
   };

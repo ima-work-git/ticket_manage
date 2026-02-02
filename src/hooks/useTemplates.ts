@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
 import type { TicketTemplate, ActivityLog, OnGraduationAction } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { syncTicketTemplate, syncActivityLog } from '../services/sync';
 
 export function useTemplates(groupId: string) {
   const { user } = useAuth();
@@ -48,14 +49,8 @@ export function useTemplates(groupId: string) {
       createdAt: new Date(),
     };
 
-    await db.transaction(
-      'rw',
-      [db.ticketTemplates, db.activityLogs],
-      async () => {
-        await db.ticketTemplates.add(template);
-        await db.activityLogs.add(log);
-      }
-    );
+    await syncTicketTemplate(template, 'insert');
+    await syncActivityLog(log);
 
     await loadTemplates();
     return template;
@@ -77,7 +72,11 @@ export function useTemplates(groupId: string) {
   ) => {
     if (!user) throw new Error('User not logged in');
 
-    await db.ticketTemplates.update(templateId, updates);
+    const existing = await db.ticketTemplates.get(templateId);
+    if (!existing) return;
+
+    const updated: TicketTemplate = { ...existing, ...updates };
+    await syncTicketTemplate(updated, 'update');
 
     const log: ActivityLog = {
       id: uuidv4(),
@@ -87,7 +86,7 @@ export function useTemplates(groupId: string) {
       metadata: { templateId },
       createdAt: new Date(),
     };
-    await db.activityLogs.add(log);
+    await syncActivityLog(log);
 
     await loadTemplates();
   };
@@ -107,14 +106,8 @@ export function useTemplates(groupId: string) {
       createdAt: new Date(),
     };
 
-    await db.transaction(
-      'rw',
-      [db.ticketTemplates, db.activityLogs],
-      async () => {
-        await db.ticketTemplates.delete(templateId);
-        await db.activityLogs.add(log);
-      }
-    );
+    await syncTicketTemplate(template, 'delete');
+    await syncActivityLog(log);
 
     await loadTemplates();
   };

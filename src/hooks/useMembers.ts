@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
 import type { IdolMember, ActivityLog } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { syncIdolMember, syncTicket, syncActivityLog } from '../services/sync';
 
 export function useMembers(groupId: string) {
   const { user } = useAuth();
@@ -43,10 +44,8 @@ export function useMembers(groupId: string) {
       createdAt: new Date(),
     };
 
-    await db.transaction('rw', [db.idolMembers, db.activityLogs], async () => {
-      await db.idolMembers.add(member);
-      await db.activityLogs.add(log);
-    });
+    await syncIdolMember(member, 'insert');
+    await syncActivityLog(log);
 
     await loadMembers();
     return member;
@@ -56,7 +55,11 @@ export function useMembers(groupId: string) {
     memberId: string,
     updates: Partial<Pick<IdolMember, 'name' | 'image'>>
   ) => {
-    await db.idolMembers.update(memberId, updates);
+    const existing = await db.idolMembers.get(memberId);
+    if (!existing) return;
+
+    const updated: IdolMember = { ...existing, ...updates };
+    await syncIdolMember(updated, 'update');
     await loadMembers();
   };
 
@@ -75,51 +78,52 @@ export function useMembers(groupId: string) {
       (t) => t.targetMemberId === memberId
     );
 
-    await db.transaction(
-      'rw',
-      [db.idolMembers, db.tickets, db.activityLogs],
-      async () => {
-        // Update member status
-        await db.idolMembers.update(memberId, {
-          status: 'graduated',
-          graduatedAt: new Date(),
-        });
+    // Update member status
+    const graduatedMember: IdolMember = {
+      ...member,
+      status: 'graduated',
+      graduatedAt: new Date(),
+    };
+    await syncIdolMember(graduatedMember, 'update');
 
-        // Process tickets based on onGraduation setting
-        for (const template of memberTemplates) {
-          const tickets = await db.tickets
-            .where('templateId')
-            .equals(template.id)
-            .filter((t) => t.status === 'active')
-            .toArray();
+    // Process tickets based on onGraduation setting
+    for (const template of memberTemplates) {
+      const tickets = await db.tickets
+        .where('templateId')
+        .equals(template.id)
+        .filter((t) => t.status === 'active')
+        .toArray();
 
-          for (const ticket of tickets) {
-            switch (template.onGraduation) {
-              case 'destroy':
-                await db.tickets.update(ticket.id, { status: 'expired' });
-                break;
-              case 'refund':
-                await db.tickets.update(ticket.id, { status: 'refunded' });
-                break;
-              case 'convert':
-                // Keep as active (converted to any-member ticket)
-                break;
-            }
-          }
+      for (const ticket of tickets) {
+        let newStatus: 'expired' | 'refunded' | 'active' = 'active';
+        switch (template.onGraduation) {
+          case 'destroy':
+            newStatus = 'expired';
+            break;
+          case 'refund':
+            newStatus = 'refunded';
+            break;
+          case 'convert':
+            // Keep as active (converted to any-member ticket)
+            newStatus = 'active';
+            break;
         }
-
-        // Log the graduation
-        const log: ActivityLog = {
-          id: uuidv4(),
-          groupId,
-          actorId: user.id,
-          action: 'member_graduate',
-          metadata: { memberName: member.name, memberId },
-          createdAt: new Date(),
-        };
-        await db.activityLogs.add(log);
+        if (newStatus !== 'active') {
+          await syncTicket({ ...ticket, status: newStatus }, 'update');
+        }
       }
-    );
+    }
+
+    // Log the graduation
+    const log: ActivityLog = {
+      id: uuidv4(),
+      groupId,
+      actorId: user.id,
+      action: 'member_graduate',
+      metadata: { memberName: member.name, memberId },
+      createdAt: new Date(),
+    };
+    await syncActivityLog(log);
 
     await loadMembers();
   };

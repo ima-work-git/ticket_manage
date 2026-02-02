@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
 import type { Group, Staff, ActivityLog } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { syncGroup, syncStaff, syncActivityLog } from '../services/sync';
 
 export function useGroups() {
   const { user } = useAuth();
@@ -64,10 +65,9 @@ export function useGroups() {
       createdAt: new Date(),
     };
 
-    await db.transaction('rw', [db.groups, db.staff], async () => {
-      await db.groups.add(group);
-      await db.staff.add(staff);
-    });
+    // Sync to cloud (handles local save internally)
+    await syncGroup(group, 'insert');
+    await syncStaff(staff, 'insert');
 
     await loadGroups();
     return group;
@@ -77,7 +77,11 @@ export function useGroups() {
     groupId: string,
     updates: Partial<Pick<Group, 'name' | 'image'>>
   ) => {
-    await db.groups.update(groupId, updates);
+    const existing = await db.groups.get(groupId);
+    if (!existing) return;
+
+    const updated: Group = { ...existing, ...updates };
+    await syncGroup(updated, 'update');
     await loadGroups();
   };
 
@@ -119,10 +123,8 @@ export function useGroups() {
       createdAt: new Date(),
     };
 
-    await db.transaction('rw', [db.staff, db.activityLogs], async () => {
-      await db.staff.add(staff);
-      await db.activityLogs.add(log);
-    });
+    await syncStaff(staff, 'insert');
+    await syncActivityLog(log);
   };
 
   const removeStaff = async (groupId: string, staffId: string) => {
@@ -140,10 +142,8 @@ export function useGroups() {
       createdAt: new Date(),
     };
 
-    await db.transaction('rw', [db.staff, db.activityLogs], async () => {
-      await db.staff.delete(staffId);
-      await db.activityLogs.add(log);
-    });
+    await syncStaff(staffEntry, 'delete');
+    await syncActivityLog(log);
   };
 
   const getGroupStaff = async (groupId: string): Promise<Staff[]> => {
