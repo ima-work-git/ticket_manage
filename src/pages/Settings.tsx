@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../contexts/AuthContext';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 export function Settings() {
-  const { user, updateNickname } = useAuth();
+  const { user, supabaseUser, isOnline, updateNickname, syncNow, logout } = useAuth();
   const [showEditName, setShowEditName] = useState(false);
   const [nickname, setNickname] = useState(user?.nickname || '');
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const handleSave = async () => {
     if (!nickname.trim()) return;
@@ -18,6 +20,21 @@ export function Settings() {
       setShowEditName(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await syncNow();
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (confirm('ログアウトしますか？ローカルデータは保持されます。')) {
+      await logout();
     }
   };
 
@@ -58,8 +75,84 @@ export function Settings() {
                 </div>
               </div>
             </div>
+            {supabaseUser && (
+              <div className="list-item">
+                <div className="flex-1">
+                  <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                    Googleアカウント
+                  </div>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>
+                    {supabaseUser.email}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
+
+        {isSupabaseConfigured() && (
+          <div className="section">
+            <h3 className="section-title">クラウド同期</h3>
+            <div className="card">
+              <div className="list-item">
+                <div className="flex-1">
+                  <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                    接続状態
+                  </div>
+                  <div
+                    style={{
+                      fontWeight: 500,
+                      color: isOnline ? 'var(--success)' : 'var(--error)',
+                    }}
+                  >
+                    {isOnline ? 'オンライン' : 'オフライン'}
+                  </div>
+                </div>
+              </div>
+              <div className="list-item">
+                <div className="flex-1">
+                  <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                    ログイン状態
+                  </div>
+                  <div
+                    style={{
+                      fontWeight: 500,
+                      color: supabaseUser ? 'var(--success)' : 'var(--warning)',
+                    }}
+                  >
+                    {supabaseUser ? 'クラウド同期有効' : 'ローカルのみ'}
+                  </div>
+                </div>
+              </div>
+              {supabaseUser && isOnline && (
+                <div className="list-item">
+                  <button
+                    className="btn btn-secondary btn-full"
+                    onClick={handleSync}
+                    disabled={syncing}
+                  >
+                    {syncing ? '同期中...' : '今すぐ同期'}
+                  </button>
+                </div>
+              )}
+              {supabaseUser && (
+                <div className="list-item">
+                  <button
+                    className="btn btn-full"
+                    onClick={handleLogout}
+                    style={{
+                      background: 'transparent',
+                      color: 'var(--error)',
+                      border: '1px solid var(--error)',
+                    }}
+                  >
+                    ログアウト
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="section">
           <h3 className="section-title">アプリについて</h3>
@@ -69,7 +162,7 @@ export function Settings() {
                 <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
                   バージョン
                 </div>
-                <div style={{ fontWeight: 500 }}>1.0.0</div>
+                <div style={{ fontWeight: 500 }}>1.1.0</div>
               </div>
             </div>
             <div className="list-item">
@@ -79,6 +172,21 @@ export function Settings() {
                 </div>
                 <div style={{ fontWeight: 500, color: 'var(--success)' }}>
                   有効
+                </div>
+              </div>
+            </div>
+            <div className="list-item">
+              <div className="flex-1">
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  クラウド同期
+                </div>
+                <div
+                  style={{
+                    fontWeight: 500,
+                    color: isSupabaseConfigured() ? 'var(--success)' : 'var(--text-secondary)',
+                  }}
+                >
+                  {isSupabaseConfigured() ? '有効' : '無効'}
                 </div>
               </div>
             </div>
