@@ -6,6 +6,8 @@ import { Layout } from '../components/Layout';
 import { useTemplates } from '../hooks/useTemplates';
 import { useAuth } from '../contexts/AuthContext';
 import { generateQRPayload, type IssueQRData } from '../utils/crypto';
+import { syncPendingTicket } from '../services/sync';
+import type { PendingTicket } from '../types';
 
 export function IssueTicket() {
   const { id: groupId } = useParams<{ id: string }>();
@@ -30,11 +32,27 @@ export function IssueTicket() {
       return;
     }
 
-    const generate = () => {
+    const generate = async () => {
       setGenerating(true);
       // Generate a unique ticket ID for each QR generation
       // This ensures each scan creates a unique ticket
       const ticketId = uuidv4();
+
+      // Create pending ticket in operator's local DB
+      const pendingTicket: PendingTicket = {
+        id: ticketId,
+        templateId: template.id,
+        groupId,
+        templateName: template.name,
+        templateImage: template.image,
+        expiresInDays: template.expiresInDays,
+        issuedBy: user.id,
+        issuedAt: new Date(),
+        status: 'pending',
+      };
+
+      // Save to local DB and sync to cloud
+      await syncPendingTicket(pendingTicket, 'create');
 
       const qrData: IssueQRData = {
         ticketId,

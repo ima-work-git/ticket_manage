@@ -25,16 +25,28 @@ export interface StaffInviteQRData {
   inviterId: string;
 }
 
+// Fan shows this to operator after receiving ticket
+export interface ReceiveConfirmQRData {
+  ticketId: string;
+  templateId: string;
+  templateName: string;
+  groupId: string;
+  ownerId: string;
+  ownerNickname: string;
+}
+
 export type QRPayload =
   | { type: 'issue'; data: IssueQRData; timestamp: number }
   | { type: 'consume'; data: ConsumeQRData; timestamp: number }
-  | { type: 'staff_invite'; data: StaffInviteQRData; timestamp: number };
+  | { type: 'staff_invite'; data: StaffInviteQRData; timestamp: number }
+  | { type: 'receive_confirm'; data: ReceiveConfirmQRData; timestamp: number };
 
 // QR expiration times (in milliseconds)
-const QR_EXPIRATION = {
+const QR_EXPIRATION: Record<string, number> = {
   issue: 10 * 60 * 1000, // 10 minutes for ticket issuance
   consume: 5 * 60 * 1000, // 5 minutes for consumption
   staff_invite: 24 * 60 * 60 * 1000, // 24 hours for staff invite
+  receive_confirm: 10 * 60 * 1000, // 10 minutes for receive confirmation
 };
 
 export function generateQRPayload(
@@ -50,8 +62,12 @@ export function generateQRPayload(
   data: StaffInviteQRData
 ): string;
 export function generateQRPayload(
-  type: 'issue' | 'consume' | 'staff_invite',
-  data: IssueQRData | ConsumeQRData | StaffInviteQRData
+  type: 'receive_confirm',
+  data: ReceiveConfirmQRData
+): string;
+export function generateQRPayload(
+  type: 'issue' | 'consume' | 'staff_invite' | 'receive_confirm',
+  data: IssueQRData | ConsumeQRData | StaffInviteQRData | ReceiveConfirmQRData
 ): string {
   const payload = {
     type,
@@ -68,7 +84,7 @@ export interface ParsedQR<T> {
   data?: T;
 }
 
-export function parseQRPayload(raw: string): ParsedQR<IssueQRData | ConsumeQRData | StaffInviteQRData> {
+export function parseQRPayload(raw: string): ParsedQR<IssueQRData | ConsumeQRData | StaffInviteQRData | ReceiveConfirmQRData> {
   try {
     const payload = JSON.parse(raw) as QRPayload;
     const { type, data, timestamp } = payload;
@@ -105,4 +121,9 @@ export function isConsumeQRData(data: unknown): data is ConsumeQRData {
 export function isStaffInviteQRData(data: unknown): data is StaffInviteQRData {
   const d = data as StaffInviteQRData;
   return !!(d?.groupId && d?.inviterId);
+}
+
+export function isReceiveConfirmQRData(data: unknown): data is ReceiveConfirmQRData {
+  const d = data as ReceiveConfirmQRData;
+  return !!(d?.ticketId && d?.templateId && d?.groupId && d?.ownerId && d?.ownerNickname);
 }

@@ -89,6 +89,17 @@ export function GroupDetail() {
       ),
     },
     {
+      label: '受領確認',
+      description: 'ファンの受領確認QRをスキャン',
+      path: `/manage/${id}/confirm`,
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+          <polyline points="22 4 12 14.01 9 11.01" />
+        </svg>
+      ),
+    },
+    {
       label: 'メンバー管理',
       description: 'アイドルメンバーの追加・編集',
       path: `/manage/${id}/members`,

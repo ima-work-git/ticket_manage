@@ -10,6 +10,7 @@ import { MemberManage } from './pages/MemberManage';
 import { TemplateManage } from './pages/TemplateManage';
 import { IssueTicket } from './pages/IssueTicket';
 import { ConsumeTicket } from './pages/ConsumeTicket';
+import { ConfirmReceive } from './pages/ConfirmReceive';
 import { StaffManage } from './pages/StaffManage';
 import { Logs } from './pages/Logs';
 import { Settings } from './pages/Settings';
@@ -65,6 +66,7 @@ function AppRoutes() {
       <Route path="/manage/:id/templates" element={<StaffRoute><TemplateManage /></StaffRoute>} />
       <Route path="/manage/:id/issue" element={<StaffRoute><IssueTicket /></StaffRoute>} />
       <Route path="/manage/:id/consume" element={<StaffRoute><ConsumeTicket /></StaffRoute>} />
+      <Route path="/manage/:id/confirm" element={<StaffRoute><ConfirmReceive /></StaffRoute>} />
       <Route path="/manage/:id/staff" element={<StaffRoute><StaffManage /></StaffRoute>} />
       <Route path="/manage/:id/logs" element={<StaffRoute><Logs /></StaffRoute>} />
       <Route path="/settings" element={<Settings />} />

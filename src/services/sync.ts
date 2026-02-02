@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { db } from '../db';
-import type { Group, Staff, IdolMember, TicketTemplate, Ticket, ActivityLog } from '../types';
+import type { Group, Staff, IdolMember, TicketTemplate, Ticket, ActivityLog, PendingTicket } from '../types';
 
 // Sync queue for offline operations
 interface SyncOperation {
@@ -79,6 +79,7 @@ async function processSyncQueue(): Promise<void> {
         ticketTemplates: 'ticket_templates',
         tickets: 'tickets',
         activityLogs: 'activity_logs',
+        pendingTickets: 'pending_tickets',
       };
 
       const supabaseTable = tableMap[op.table];
@@ -337,6 +338,56 @@ export async function syncActivityLog(log: ActivityLog): Promise<void> {
   }
 }
 
+export async function syncPendingTicket(
+  pendingTicket: PendingTicket,
+  operation: 'create' | 'update'
+): Promise<void> {
+  // Always save locally first
+  await db.pendingTickets.put(pendingTicket);
+
+  if (isSupabaseConfigured()) {
+    if (isOnline && supabase) {
+      try {
+        const data = {
+          id: pendingTicket.id,
+          template_id: pendingTicket.templateId,
+          group_id: pendingTicket.groupId,
+          template_name: pendingTicket.templateName,
+          template_image: pendingTicket.templateImage,
+          expires_in_days: pendingTicket.expiresInDays,
+          issued_by: pendingTicket.issuedBy,
+          issued_at: pendingTicket.issuedAt.toISOString(),
+          status: pendingTicket.status,
+          claimed_by: pendingTicket.claimedBy,
+          claimed_by_nickname: pendingTicket.claimedByNickname,
+          claimed_at: pendingTicket.claimedAt?.toISOString(),
+        };
+
+        if (operation === 'create') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase.from('pending_tickets') as any).insert(data);
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase.from('pending_tickets') as any).update(data).eq('id', pendingTicket.id);
+        }
+      } catch (error) {
+        console.error('Cloud sync failed, queuing:', error);
+        addToSyncQueue({
+          table: 'pendingTickets',
+          operation: operation === 'create' ? 'insert' : 'update',
+          data: pendingTicket as unknown as Record<string, unknown>,
+        });
+      }
+    } else {
+      addToSyncQueue({
+        table: 'pendingTickets',
+        operation: operation === 'create' ? 'insert' : 'update',
+        data: pendingTicket as unknown as Record<string, unknown>,
+      });
+    }
+  }
+}
+
 // Pull data from cloud to local
 export async function pullFromCloud(userId: string): Promise<void> {
   if (!isOnline || !supabase) return;
@@ -429,6 +480,33 @@ export async function pullFromCloud(userId: string): Promise<void> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const t of groupTickets as any[]) {
           await db.tickets.put(toCamelCase<Ticket>(t));
+        }
+      }
+
+      // Fetch pending tickets for staff groups
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: pendingTickets } = await (supabase.from('pending_tickets') as any)
+        .select('*')
+        .in('group_id', staffGroupIds);
+
+      if (pendingTickets) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const pt of pendingTickets as any[]) {
+          const localPt: PendingTicket = {
+            id: pt.id,
+            templateId: pt.template_id,
+            groupId: pt.group_id,
+            templateName: pt.template_name,
+            templateImage: pt.template_image,
+            expiresInDays: pt.expires_in_days,
+            issuedBy: pt.issued_by,
+            issuedAt: new Date(pt.issued_at),
+            status: pt.status,
+            claimedBy: pt.claimed_by,
+            claimedByNickname: pt.claimed_by_nickname,
+            claimedAt: pt.claimed_at ? new Date(pt.claimed_at) : undefined,
+          };
+          await db.pendingTickets.put(localPt);
         }
       }
     }

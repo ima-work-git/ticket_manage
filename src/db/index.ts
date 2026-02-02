@@ -7,6 +7,7 @@ import type {
   TicketTemplate,
   Ticket,
   ActivityLog,
+  PendingTicket,
 } from '../types';
 
 export class TicketDatabase extends Dexie {
@@ -17,6 +18,7 @@ export class TicketDatabase extends Dexie {
   ticketTemplates!: Table<TicketTemplate, string>;
   tickets!: Table<Ticket, string>;
   activityLogs!: Table<ActivityLog, string>;
+  pendingTickets!: Table<PendingTicket, string>;
 
   constructor() {
     super('TicketManageDB');
@@ -29,6 +31,18 @@ export class TicketDatabase extends Dexie {
       ticketTemplates: 'id, groupId',
       tickets: 'id, templateId, groupId, ownerId, status, [groupId+ownerId], [groupId+status]',
       activityLogs: 'id, groupId, actorId, action, createdAt, [groupId+createdAt]',
+    });
+
+    // Version 2: Add pendingTickets table for tracking issued tickets
+    this.version(2).stores({
+      users: 'id, nickname, deviceKey',
+      groups: 'id, name, ownerId',
+      staff: 'id, groupId, userId, [groupId+userId]',
+      idolMembers: 'id, groupId, status, [groupId+status]',
+      ticketTemplates: 'id, groupId',
+      tickets: 'id, templateId, groupId, ownerId, status, [groupId+ownerId], [groupId+status]',
+      activityLogs: 'id, groupId, actorId, action, createdAt, [groupId+createdAt]',
+      pendingTickets: 'id, groupId, templateId, issuedBy, status, [groupId+status], [groupId+issuedBy]',
     });
   }
 }

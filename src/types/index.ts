@@ -90,3 +90,22 @@ export interface QRPayload {
   timestamp: number;
   signature: string;
 }
+
+// Pending ticket - issued by staff, waiting for fan to claim
+export type PendingTicketStatus = 'pending' | 'claimed' | 'expired';
+
+export interface PendingTicket {
+  id: string; // Same as ticketId in QR
+  templateId: string;
+  groupId: string;
+  templateName: string;
+  templateImage?: string;
+  expiresInDays?: number;
+  issuedBy: string;
+  issuedAt: Date;
+  status: PendingTicketStatus;
+  // Filled when claimed
+  claimedBy?: string;
+  claimedByNickname?: string;
+  claimedAt?: Date;
+}

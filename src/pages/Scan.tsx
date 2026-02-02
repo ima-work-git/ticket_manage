@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import { QRCodeSVG } from 'qrcode.react';
 import { v4 as uuidv4 } from 'uuid';
 import { addDays } from 'date-fns';
 import { Layout } from '../components/Layout';
@@ -11,8 +12,10 @@ import {
   parseQRPayload,
   isIssueQRData,
   isStaffInviteQRData,
+  generateQRPayload,
   type IssueQRData,
   type StaffInviteQRData,
+  type ReceiveConfirmQRData,
 } from '../utils/crypto';
 import { syncTicket, syncStaff, syncActivityLog } from '../services/sync';
 import type { Ticket, ActivityLog, Staff } from '../types';
@@ -26,7 +29,11 @@ export function Scan() {
     message: string;
     ticket?: Ticket;
     templateName?: string;
+    templateId?: string;
+    groupId?: string;
   } | null>(null);
+  const [showConfirmQR, setShowConfirmQR] = useState(false);
+  const [confirmQRPayload, setConfirmQRPayload] = useState('');
 
   const handleScan = async (data: string) => {
     if (!user) return;
@@ -122,6 +129,8 @@ export function Scan() {
           message: 'チケットを受け取りました！',
           ticket,
           templateName: qrData.templateName,
+          templateId: qrData.templateId,
+          groupId: qrData.groupId,
         });
       } else if (parsed.type === 'staff_invite' && isStaffInviteQRData(parsed.data)) {
         // Join as staff (offline compatible)
@@ -187,6 +196,44 @@ export function Scan() {
     }
   };
 
+  // Generate confirmation QR for operator to scan
+  const generateConfirmQR = () => {
+    if (!result?.ticket || !user) return;
+
+    const qrData: ReceiveConfirmQRData = {
+      ticketId: result.ticket.id,
+      templateId: result.templateId || result.ticket.templateId,
+      templateName: result.templateName || '',
+      groupId: result.groupId || result.ticket.groupId,
+      ownerId: user.id,
+      ownerNickname: user.nickname,
+    };
+
+    const payload = generateQRPayload('receive_confirm', qrData);
+    setConfirmQRPayload(payload);
+    setShowConfirmQR(true);
+  };
+
+  // Refresh confirmation QR periodically
+  useEffect(() => {
+    if (!showConfirmQR || !result?.ticket || !user) return;
+
+    const interval = setInterval(() => {
+      const qrData: ReceiveConfirmQRData = {
+        ticketId: result.ticket!.id,
+        templateId: result.templateId || result.ticket!.templateId,
+        templateName: result.templateName || '',
+        groupId: result.groupId || result.ticket!.groupId,
+        ownerId: user.id,
+        ownerNickname: user.nickname,
+      };
+      const payload = generateQRPayload('receive_confirm', qrData);
+      setConfirmQRPayload(payload);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [showConfirmQR, result, user]);
+
   return (
     <Layout title="スキャン">
       <div className="container">
@@ -250,21 +297,36 @@ export function Scan() {
 
       {/* Result Modal */}
       <Modal
-        isOpen={result !== null}
+        isOpen={result !== null && !showConfirmQR}
         onClose={() => setResult(null)}
         title={result?.type === 'success' ? '成功' : 'エラー'}
         footer={
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              if (result?.type === 'success' && result.ticket) {
-                navigate(`/ticket/${result.ticket.id}`);
-              }
-              setResult(null);
-            }}
-          >
-            OK
-          </button>
+          result?.type === 'success' && result.ticket ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn btn-outline"
+                onClick={() => {
+                  navigate(`/ticket/${result.ticket!.id}`);
+                  setResult(null);
+                }}
+              >
+                チケットを見る
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={generateConfirmQR}
+              >
+                受領確認QRを表示
+              </button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={() => setResult(null)}
+            >
+              OK
+            </button>
+          )
         }
       >
         <div className="text-center">
@@ -293,6 +355,54 @@ export function Scan() {
               {result.templateName}
             </p>
           )}
+          {result?.type === 'success' && result.ticket && (
+            <p style={{ color: 'var(--text-secondary)', marginTop: 16, fontSize: 13 }}>
+              運営に「受領確認QR」を見せると、チケットデータがクラウドにバックアップされます
+            </p>
+          )}
+        </div>
+      </Modal>
+
+      {/* Confirmation QR Modal */}
+      <Modal
+        isOpen={showConfirmQR}
+        onClose={() => {
+          setShowConfirmQR(false);
+          setResult(null);
+        }}
+        title="受領確認QR"
+        footer={
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setShowConfirmQR(false);
+              if (result?.ticket) {
+                navigate(`/ticket/${result.ticket.id}`);
+              }
+              setResult(null);
+            }}
+          >
+            完了
+          </button>
+        }
+      >
+        <div className="qr-container">
+          <div className="qr-code">
+            {confirmQRPayload ? (
+              <QRCodeSVG value={confirmQRPayload} size={200} />
+            ) : (
+              <div className="spinner" />
+            )}
+          </div>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
+            このQRコードを運営にスキャンしてもらってください
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+            チケットデータがクラウドにバックアップされ、キャッシュクリアしても復旧できるようになります
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+            ※ QRコードは5分間有効です
+          </p>
         </div>
       </Modal>
     </Layout>
