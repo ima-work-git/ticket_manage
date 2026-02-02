@@ -51,13 +51,13 @@ export function Settings() {
   };
 
   const handleRestore = async () => {
-    if (!supabaseUser?.email) return;
+    if (!supabaseUser?.email || !supabaseUser?.id) return;
 
     setRestoring(true);
     setRestoreResult(null);
 
     try {
-      const result = await restoreTicketsByEmail(supabaseUser.email);
+      const result = await restoreTicketsByEmail(supabaseUser.email, supabaseUser.id);
       if (result.success) {
         if (result.ticketsRestored > 0) {
           setRestoreResult({

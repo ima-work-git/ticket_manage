@@ -635,7 +635,7 @@ export interface RestoreResult {
   error?: string;
 }
 
-export async function restoreTicketsByEmail(email: string): Promise<RestoreResult> {
+export async function restoreTicketsByEmail(email: string, userId: string): Promise<RestoreResult> {
   if (!isOnline || !supabase) {
     return { success: false, ticketsRestored: 0, error: 'オフラインです。インターネット接続を確認してください。' };
   }
@@ -646,32 +646,103 @@ export async function restoreTicketsByEmail(email: string): Promise<RestoreResul
       setTimeout(() => reject(new Error('タイムアウト')), 10000);
     });
 
-    // Search for pending tickets claimed by this email
+    let restoredCount = 0;
+
+    // 1. First, restore tickets directly from tickets table (owner_id matches user)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const queryPromise = (supabase.from('pending_tickets') as any)
+    const ticketsQueryPromise = (supabase.from('tickets') as any)
+      .select('*')
+      .eq('owner_id', userId)
+      .in('status', ['active', 'expired']);
+
+    const { data: cloudTickets, error: ticketsError } = await Promise.race([
+      ticketsQueryPromise,
+      timeoutPromise,
+    ]);
+
+    if (ticketsError) {
+      console.error('Failed to fetch tickets:', ticketsError);
+    } else if (cloudTickets && cloudTickets.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const ct of cloudTickets as any[]) {
+        // Check if ticket already exists locally
+        const existingTicket = await db.tickets.get(ct.id);
+        if (existingTicket) {
+          continue;
+        }
+
+        // Restore ticket locally
+        const ticket: Ticket = {
+          id: ct.id,
+          templateId: ct.template_id,
+          groupId: ct.group_id,
+          ownerId: ct.owner_id,
+          issuedBy: ct.issued_by,
+          issuedAt: new Date(ct.issued_at),
+          status: ct.status,
+          expiresAt: ct.expires_at ? new Date(ct.expires_at) : undefined,
+          consumedBy: ct.consumed_by,
+          consumedAt: ct.consumed_at ? new Date(ct.consumed_at) : undefined,
+          eventName: ct.event_name,
+        };
+
+        await db.tickets.put(ticket);
+        restoredCount++;
+
+        // Try to get template info
+        const existingTemplate = await db.ticketTemplates.get(ct.template_id);
+        if (!existingTemplate) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: templateData } = await (supabase.from('ticket_templates') as any)
+            .select('*')
+            .eq('id', ct.template_id)
+            .single();
+
+          if (templateData) {
+            await db.ticketTemplates.put({
+              id: templateData.id,
+              groupId: templateData.group_id,
+              name: templateData.name,
+              image: templateData.image_url,
+              description: templateData.description,
+              targetMemberId: templateData.target_member_id,
+              expiresInDays: templateData.expires_in_days,
+              onGraduation: templateData.on_graduation || 'destroy',
+              createdAt: new Date(templateData.created_at),
+            });
+          }
+        }
+      }
+    }
+
+    // 2. Also check pending_tickets for any claimed by email (backup method)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pendingQueryPromise = (supabase.from('pending_tickets') as any)
       .select('*')
       .eq('claimed_by_email', email)
       .eq('status', 'claimed');
 
-    const { data: pendingTickets, error } = await Promise.race([
-      queryPromise,
+    const { data: pendingTickets, error: pendingError } = await Promise.race([
+      pendingQueryPromise,
       timeoutPromise,
     ]);
 
-    if (error) {
-      console.error('Failed to fetch pending tickets:', error);
+    if (pendingError) {
+      console.error('Failed to fetch pending tickets:', pendingError);
+      // If we already restored some tickets, don't fail completely
+      if (restoredCount > 0) {
+        return { success: true, ticketsRestored: restoredCount };
+      }
       // Check for specific error types
-      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+      if (pendingError.code === '42P01' || pendingError.message?.includes('does not exist')) {
         return { success: false, ticketsRestored: 0, error: 'データベースの設定が完了していません。運営に連絡してください。' };
       }
-      return { success: false, ticketsRestored: 0, error: `データの取得に失敗しました: ${error.message || '不明なエラー'}` };
+      return { success: false, ticketsRestored: 0, error: `データの取得に失敗しました: ${pendingError.message || '不明なエラー'}` };
     }
 
     if (!pendingTickets || pendingTickets.length === 0) {
-      return { success: true, ticketsRestored: 0, error: undefined };
+      return { success: true, ticketsRestored: restoredCount };
     }
-
-    let restoredCount = 0;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const pt of pendingTickets as any[]) {
