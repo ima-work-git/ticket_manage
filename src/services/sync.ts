@@ -624,3 +624,92 @@ export async function initializeSync(userId: string): Promise<void> {
   // Pull latest data from cloud
   await pullFromCloud(userId);
 }
+
+// Restore tickets for a fan by nickname
+// This is used when a fan clears their cache and needs to recover tickets
+export interface RestoreResult {
+  success: boolean;
+  ticketsRestored: number;
+  error?: string;
+}
+
+export async function restoreTicketsByNickname(nickname: string): Promise<RestoreResult> {
+  if (!isOnline || !supabase) {
+    return { success: false, ticketsRestored: 0, error: 'オフラインです。インターネット接続を確認してください。' };
+  }
+
+  try {
+    // Search for pending tickets claimed by this nickname
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: pendingTickets, error } = await (supabase.from('pending_tickets') as any)
+      .select('*')
+      .eq('claimed_by_nickname', nickname)
+      .eq('status', 'claimed');
+
+    if (error) {
+      console.error('Failed to fetch pending tickets:', error);
+      return { success: false, ticketsRestored: 0, error: 'データの取得に失敗しました' };
+    }
+
+    if (!pendingTickets || pendingTickets.length === 0) {
+      return { success: false, ticketsRestored: 0, error: 'このニックネームで登録されたチケットが見つかりません' };
+    }
+
+    let restoredCount = 0;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const pt of pendingTickets as any[]) {
+      // Check if ticket already exists locally
+      const existingTicket = await db.tickets.get(pt.id);
+      if (existingTicket) {
+        continue; // Skip if already exists
+      }
+
+      // Calculate expiration date
+      let expiresAt: Date | undefined;
+      if (pt.expires_in_days && pt.issued_at) {
+        const issuedAt = new Date(pt.issued_at);
+        expiresAt = new Date(issuedAt.getTime() + pt.expires_in_days * 24 * 60 * 60 * 1000);
+      }
+
+      // Check if expired
+      if (expiresAt && expiresAt < new Date()) {
+        continue; // Skip expired tickets
+      }
+
+      // Create local ticket
+      const ticket: Ticket = {
+        id: pt.id,
+        templateId: pt.template_id,
+        groupId: pt.group_id,
+        ownerId: pt.claimed_by || '',
+        issuedBy: pt.issued_by,
+        issuedAt: new Date(pt.issued_at),
+        status: 'active',
+        expiresAt,
+      };
+
+      await db.tickets.put(ticket);
+
+      // Also save template info if we don't have it
+      const existingTemplate = await db.ticketTemplates.get(pt.template_id);
+      if (!existingTemplate && pt.template_name) {
+        await db.ticketTemplates.put({
+          id: pt.template_id,
+          groupId: pt.group_id,
+          name: pt.template_name,
+          image: pt.template_image,
+          onGraduation: 'destroy',
+          createdAt: new Date(),
+        });
+      }
+
+      restoredCount++;
+    }
+
+    return { success: true, ticketsRestored: restoredCount };
+  } catch (error) {
+    console.error('Restore failed:', error);
+    return { success: false, ticketsRestored: 0, error: '復元中にエラーが発生しました' };
+  }
+}

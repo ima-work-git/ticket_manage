@@ -1,8 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../contexts/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
+import {
+  requestPersistentStorage,
+  checkStorageStatus,
+  formatBytes,
+  type StorageStatus,
+} from '../utils/storage';
+import { restoreTicketsByNickname } from '../services/sync';
 
 export function Settings() {
   const { user, supabaseUser, isOnline, updateNickname, syncNow, logout } = useAuth();
@@ -10,6 +17,62 @@ export function Settings() {
   const [nickname, setNickname] = useState(user?.nickname || '');
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  // Storage status
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
+  const [requestingPersist, setRequestingPersist] = useState(false);
+
+  // Restore modal
+  const [showRestore, setShowRestore] = useState(false);
+  const [restoreNickname, setRestoreNickname] = useState('');
+  const [restoring, setRestoring] = useState(false);
+  const [restoreResult, setRestoreResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+
+  // Load storage status on mount
+  useEffect(() => {
+    checkStorageStatus().then(setStorageStatus);
+  }, []);
+
+  const handleRequestPersist = async () => {
+    setRequestingPersist(true);
+    try {
+      await requestPersistentStorage();
+      const status = await checkStorageStatus();
+      setStorageStatus(status);
+    } finally {
+      setRequestingPersist(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!restoreNickname.trim()) return;
+
+    setRestoring(true);
+    setRestoreResult(null);
+
+    try {
+      const result = await restoreTicketsByNickname(restoreNickname.trim());
+      if (result.success) {
+        setRestoreResult({
+          success: true,
+          message: `${result.ticketsRestored}件のチケットを復元しました`,
+        });
+        if (result.ticketsRestored > 0) {
+          setShowRestore(false);
+        }
+      } else {
+        setRestoreResult({
+          success: false,
+          message: result.error || '復元に失敗しました',
+        });
+      }
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!nickname.trim()) return;
@@ -154,6 +217,90 @@ export function Settings() {
           </div>
         )}
 
+        {/* Data Storage Section */}
+        <div className="section">
+          <h3 className="section-title">データ保存</h3>
+          <div className="card">
+            <div className="list-item">
+              <div className="flex-1">
+                <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  永続ストレージ
+                </div>
+                <div
+                  style={{
+                    fontWeight: 500,
+                    color: storageStatus?.persisted ? 'var(--success)' : 'var(--warning)',
+                  }}
+                >
+                  {storageStatus?.persisted ? '有効（データ保護済み）' : '無効'}
+                </div>
+              </div>
+              {!storageStatus?.persisted && (
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={handleRequestPersist}
+                  disabled={requestingPersist}
+                >
+                  {requestingPersist ? '...' : '有効化'}
+                </button>
+              )}
+            </div>
+            {storageStatus?.usage !== undefined && (
+              <div className="list-item">
+                <div className="flex-1">
+                  <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                    使用容量
+                  </div>
+                  <div style={{ fontWeight: 500 }}>
+                    {formatBytes(storageStatus.usage)}
+                    {storageStatus.quota && (
+                      <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                        {' '}/ {formatBytes(storageStatus.quota)} ({storageStatus.usagePercent}%)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div
+              style={{
+                padding: '8px 16px',
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                background: 'var(--surface-secondary)',
+                borderRadius: '0 0 12px 12px',
+              }}
+            >
+              永続ストレージを有効にすると、ブラウザがデータを自動削除しなくなります。
+              ただし手動でデータを消去した場合は削除されます。
+            </div>
+          </div>
+        </div>
+
+        {/* Data Restore Section */}
+        {isSupabaseConfigured() && (
+          <div className="section">
+            <h3 className="section-title">データ復元</h3>
+            <div className="card">
+              <div style={{ padding: 16 }}>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                  誤ってデータを削除してしまった場合、運営がクラウドに同期したデータから復元できます。
+                </p>
+                <button
+                  className="btn btn-primary btn-full"
+                  onClick={() => {
+                    setRestoreNickname(user?.nickname || '');
+                    setRestoreResult(null);
+                    setShowRestore(true);
+                  }}
+                >
+                  チケットを復元する
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="section">
           <h3 className="section-title">アプリについて</h3>
           <div className="card">
@@ -267,6 +414,78 @@ export function Settings() {
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
           />
+        </div>
+      </Modal>
+
+      {/* Restore Modal */}
+      <Modal
+        isOpen={showRestore}
+        onClose={() => setShowRestore(false)}
+        title="チケット復元"
+        footer={
+          <>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowRestore(false)}
+            >
+              キャンセル
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleRestore}
+              disabled={!restoreNickname.trim() || restoring || !isOnline}
+            >
+              {restoring ? '復元中...' : '復元する'}
+            </button>
+          </>
+        }
+      >
+        <div>
+          {!isOnline && (
+            <div
+              style={{
+                padding: 12,
+                background: 'var(--error)',
+                color: 'white',
+                borderRadius: 8,
+                marginBottom: 16,
+                fontSize: 14,
+              }}
+            >
+              オフラインです。インターネット接続を確認してください。
+            </div>
+          )}
+
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+            チケットを受け取った時のニックネームを入力してください。
+            運営が「受領確認」をスキャンしたチケットが復元されます。
+          </p>
+
+          <div className="form-group">
+            <label className="form-label">ニックネーム</label>
+            <input
+              type="text"
+              className="form-input"
+              value={restoreNickname}
+              onChange={(e) => setRestoreNickname(e.target.value)}
+              placeholder="チケット受取時のニックネーム"
+            />
+          </div>
+
+          {restoreResult && (
+            <div
+              style={{
+                padding: 12,
+                background: restoreResult.success ? 'var(--success)' : 'var(--error)',
+                color: 'white',
+                borderRadius: 8,
+                marginTop: 16,
+                fontSize: 14,
+              }}
+            >
+              {restoreResult.message}
+            </div>
+          )}
         </div>
       </Modal>
     </Layout>

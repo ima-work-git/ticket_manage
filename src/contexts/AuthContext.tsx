@@ -10,6 +10,7 @@ import type { User } from '../types';
 import { getCurrentUser, createUser, db } from '../db';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { initializeSync, pullFromCloud } from '../services/sync';
+import { requestPersistentStorage } from '../utils/storage';
 
 interface AuthContextType {
   user: User | null;
@@ -49,6 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initialize = async () => {
       try {
+        // Request persistent storage to protect data from automatic cleanup
+        requestPersistentStorage();
+
         // Check for Supabase session first
         if (isSupabaseConfigured() && supabase) {
           const { data: { session } } = await supabase.auth.getSession();
