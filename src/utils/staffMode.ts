@@ -24,9 +24,9 @@ export function getInviteUrl(token: string): string {
 }
 
 export function validateAdminKey(key: string): boolean {
-  const adminKey = import.meta.env.VITE_ADMIN_KEY;
+  const adminKey = import.meta.env.VITE_admin_key;
   if (!adminKey) {
-    console.error('VITE_ADMIN_KEY is not set');
+    console.error('VITE_admin_key is not set');
     return false;
   }
   return key === adminKey;
