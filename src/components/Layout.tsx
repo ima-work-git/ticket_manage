@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { isStaffMode } from '../utils/staffMode';
 
 interface LayoutProps {
   children: ReactNode;
@@ -18,6 +19,7 @@ export function Layout({
 }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const staffMode = isStaffMode();
 
   return (
     <div className="app">
@@ -65,17 +67,19 @@ export function Layout({
               </svg>
               <span>スキャン</span>
             </Link>
-            <Link
-              to="/manage"
-              className={`nav-item ${location.pathname.startsWith('/manage') ? 'active' : ''}`}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
-              <span>管理</span>
-            </Link>
+            {staffMode && (
+              <Link
+                to="/manage"
+                className={`nav-item ${location.pathname.startsWith('/manage') ? 'active' : ''}`}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
+                <span>管理</span>
+              </Link>
+            )}
             <Link
               to="/settings"
               className={`nav-item ${location.pathname === '/settings' ? 'active' : ''}`}

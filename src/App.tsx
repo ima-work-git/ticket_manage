@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Login } from './pages/Login';
 import { Home } from './pages/Home';
@@ -13,6 +13,16 @@ import { ConsumeTicket } from './pages/ConsumeTicket';
 import { StaffManage } from './pages/StaffManage';
 import { Logs } from './pages/Logs';
 import { Settings } from './pages/Settings';
+import { SuperAdmin } from './pages/SuperAdmin';
+import { StaffInvite } from './pages/StaffInvite';
+import { isStaffMode } from './utils/staffMode';
+
+function StaffRoute({ children }: { children: React.ReactNode }) {
+  if (!isStaffMode()) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -35,7 +45,13 @@ function AppRoutes() {
   }
 
   if (!user) {
-    return <Login />;
+    return (
+      <Routes>
+        <Route path="/staff-invite" element={<StaffInvite />} />
+        <Route path="/super-admin" element={<SuperAdmin />} />
+        <Route path="*" element={<Login />} />
+      </Routes>
+    );
   }
 
   return (
@@ -43,15 +59,17 @@ function AppRoutes() {
       <Route path="/" element={<Home />} />
       <Route path="/ticket/:id" element={<TicketDetail />} />
       <Route path="/scan" element={<Scan />} />
-      <Route path="/manage" element={<Manage />} />
-      <Route path="/manage/:id" element={<GroupDetail />} />
-      <Route path="/manage/:id/members" element={<MemberManage />} />
-      <Route path="/manage/:id/templates" element={<TemplateManage />} />
-      <Route path="/manage/:id/issue" element={<IssueTicket />} />
-      <Route path="/manage/:id/consume" element={<ConsumeTicket />} />
-      <Route path="/manage/:id/staff" element={<StaffManage />} />
-      <Route path="/manage/:id/logs" element={<Logs />} />
+      <Route path="/manage" element={<StaffRoute><Manage /></StaffRoute>} />
+      <Route path="/manage/:id" element={<StaffRoute><GroupDetail /></StaffRoute>} />
+      <Route path="/manage/:id/members" element={<StaffRoute><MemberManage /></StaffRoute>} />
+      <Route path="/manage/:id/templates" element={<StaffRoute><TemplateManage /></StaffRoute>} />
+      <Route path="/manage/:id/issue" element={<StaffRoute><IssueTicket /></StaffRoute>} />
+      <Route path="/manage/:id/consume" element={<StaffRoute><ConsumeTicket /></StaffRoute>} />
+      <Route path="/manage/:id/staff" element={<StaffRoute><StaffManage /></StaffRoute>} />
+      <Route path="/manage/:id/logs" element={<StaffRoute><Logs /></StaffRoute>} />
       <Route path="/settings" element={<Settings />} />
+      <Route path="/super-admin" element={<SuperAdmin />} />
+      <Route path="/staff-invite" element={<StaffInvite />} />
     </Routes>
   );
 }
