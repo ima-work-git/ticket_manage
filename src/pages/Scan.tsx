@@ -1,12 +1,21 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import { v4 as uuidv4 } from 'uuid';
+import { addDays } from 'date-fns';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../db';
-import { parseQRPayload } from '../utils/crypto';
-import type { Ticket, TicketTemplate } from '../types';
+import {
+  parseQRPayload,
+  isIssueQRData,
+  isStaffInviteQRData,
+  type IssueQRData,
+  type StaffInviteQRData,
+} from '../utils/crypto';
+import { syncTicket, syncStaff, syncActivityLog } from '../services/sync';
+import type { Ticket, ActivityLog, Staff } from '../types';
 
 export function Scan() {
   const navigate = useNavigate();
@@ -16,117 +25,158 @@ export function Scan() {
     type: 'success' | 'error';
     message: string;
     ticket?: Ticket;
-    template?: TicketTemplate;
+    templateName?: string;
   } | null>(null);
 
   const handleScan = async (data: string) => {
     if (!user) return;
 
     setScanning(false);
-    const parsed = await parseQRPayload(data);
+    const parsed = parseQRPayload(data);
 
-    if (!parsed.valid || !parsed.data) {
+    if (!parsed.valid) {
       setResult({
         type: 'error',
-        message: 'QRコードが無効または期限切れです',
+        message: parsed.expired
+          ? 'QRコードの有効期限が切れています'
+          : 'QRコードが無効です',
       });
       return;
     }
 
     try {
-      if (parsed.type === 'issue') {
-        // Receive a ticket
-        const { templateId, issuerId } = parsed.data;
-        const template = await db.ticketTemplates.get(templateId);
+      if (parsed.type === 'issue' && isIssueQRData(parsed.data)) {
+        // Receive a ticket (offline compatible)
+        const qrData = parsed.data as IssueQRData;
 
-        if (!template) {
-          setResult({ type: 'error', message: 'テンプレートが見つかりません' });
+        // Check if ticket already exists (prevent duplicate claims)
+        const existingTicket = await db.tickets.get(qrData.ticketId);
+        if (existingTicket) {
+          setResult({
+            type: 'error',
+            message: 'このチケットは既に受け取り済みです',
+          });
           return;
         }
 
-        // Import the ticket hook functions directly
-        const { v4: uuidv4 } = await import('uuid');
-        const { addDays } = await import('date-fns');
-
-        const expiresAt = template.expiresInDays
-          ? addDays(new Date(), template.expiresInDays)
+        // Calculate expiration date
+        const expiresAt = qrData.expiresInDays
+          ? addDays(new Date(), qrData.expiresInDays)
           : undefined;
 
+        // Create the ticket locally (works offline)
         const ticket: Ticket = {
-          id: uuidv4(),
-          templateId,
-          groupId: template.groupId,
+          id: qrData.ticketId,
+          templateId: qrData.templateId,
+          groupId: qrData.groupId,
           ownerId: user.id,
-          issuedBy: issuerId,
+          issuedBy: qrData.issuerId,
           issuedAt: new Date(),
           status: 'active',
           expiresAt,
         };
 
-        await db.tickets.add(ticket);
-
-        // Log the activity
-        await db.activityLogs.add({
+        // Create activity log
+        const log: ActivityLog = {
           id: uuidv4(),
-          groupId: template.groupId,
-          actorId: issuerId,
+          groupId: qrData.groupId,
+          actorId: qrData.issuerId,
           action: 'issue',
           ticketId: ticket.id,
           targetUserId: user.id,
-          metadata: { templateName: template.name },
+          metadata: { templateName: qrData.templateName },
           createdAt: new Date(),
-        });
+        };
+
+        // Sync (saves locally, queues for cloud if offline)
+        await syncTicket(ticket, 'insert');
+        await syncActivityLog(log);
+
+        // Also save the template locally if we don't have it
+        const existingTemplate = await db.ticketTemplates.get(qrData.templateId);
+        if (!existingTemplate) {
+          // Create a minimal template record for display purposes
+          await db.ticketTemplates.put({
+            id: qrData.templateId,
+            groupId: qrData.groupId,
+            name: qrData.templateName,
+            image: qrData.templateImage,
+            onGraduation: 'destroy',
+            createdAt: new Date(),
+          });
+        }
+
+        // Save group if we don't have it
+        const existingGroup = await db.groups.get(qrData.groupId);
+        if (!existingGroup) {
+          await db.groups.put({
+            id: qrData.groupId,
+            name: qrData.templateName.split(' ')[0] || 'グループ',
+            ownerId: qrData.issuerId,
+            createdAt: new Date(),
+          });
+        }
 
         setResult({
           type: 'success',
           message: 'チケットを受け取りました！',
           ticket,
-          template,
+          templateName: qrData.templateName,
         });
-      } else if (parsed.type === 'staff_invite') {
-        // Join as staff
-        const { groupId, inviterId } = parsed.data;
-        const group = await db.groups.get(groupId);
-
-        if (!group) {
-          setResult({ type: 'error', message: 'グループが見つかりません' });
-          return;
-        }
+      } else if (parsed.type === 'staff_invite' && isStaffInviteQRData(parsed.data)) {
+        // Join as staff (offline compatible)
+        const qrData = parsed.data as StaffInviteQRData;
 
         // Check if already staff
         const existing = await db.staff
           .where('[groupId+userId]')
-          .equals([groupId, user.id])
+          .equals([qrData.groupId, user.id])
           .first();
 
         if (existing) {
-          setResult({ type: 'error', message: '既にスタッフとして登録されています' });
+          setResult({
+            type: 'error',
+            message: '既にスタッフとして登録されています',
+          });
           return;
         }
 
-        const { v4: uuidv4 } = await import('uuid');
-
-        await db.staff.add({
+        // Create staff entry
+        const staff: Staff = {
           id: uuidv4(),
-          groupId,
+          groupId: qrData.groupId,
           userId: user.id,
           role: 'staff',
-          invitedBy: inviterId,
+          invitedBy: qrData.inviterId,
           createdAt: new Date(),
-        });
+        };
 
-        await db.activityLogs.add({
+        const log: ActivityLog = {
           id: uuidv4(),
-          groupId,
-          actorId: inviterId,
+          groupId: qrData.groupId,
+          actorId: qrData.inviterId,
           action: 'staff_add',
           targetUserId: user.id,
           createdAt: new Date(),
-        });
+        };
+
+        await syncStaff(staff, 'insert');
+        await syncActivityLog(log);
+
+        // Save group if we don't have it
+        const existingGroup = await db.groups.get(qrData.groupId);
+        if (!existingGroup) {
+          await db.groups.put({
+            id: qrData.groupId,
+            name: qrData.groupName,
+            ownerId: qrData.inviterId,
+            createdAt: new Date(),
+          });
+        }
 
         setResult({
           type: 'success',
-          message: `${group.name}のスタッフになりました`,
+          message: `${qrData.groupName}のスタッフになりました`,
         });
       } else {
         setResult({ type: 'error', message: '不明なQRコードです' });
@@ -238,9 +288,9 @@ export function Scan() {
             </span>
           </div>
           <p style={{ fontSize: 16 }}>{result?.message}</p>
-          {result?.template && (
+          {result?.templateName && (
             <p style={{ color: 'var(--text-secondary)', marginTop: 8 }}>
-              {result.template.name}
+              {result.templateName}
             </p>
           )}
         </div>

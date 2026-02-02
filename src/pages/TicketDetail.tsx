@@ -5,7 +5,7 @@ import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { Layout } from '../components/Layout';
 import { db } from '../db';
-import { generateQRPayload } from '../utils/crypto';
+import { generateQRPayload, type ConsumeQRData } from '../utils/crypto';
 import { useAuth } from '../contexts/AuthContext';
 import type { Ticket, TicketTemplate, Group } from '../types';
 
@@ -43,12 +43,18 @@ export function TicketDetail() {
       const g = await db.groups.get(t.groupId);
       setGroup(g || null);
 
-      // Generate QR for consumption
-      if (t.status === 'active' && user) {
-        const payload = await generateQRPayload('consume', {
+      // Generate QR for consumption (includes all data for offline verification)
+      if (t.status === 'active' && user && tmpl) {
+        const qrData: ConsumeQRData = {
           ticketId: t.id,
+          templateId: tmpl.id,
+          templateName: tmpl.name,
+          templateImage: tmpl.image,
+          groupId: t.groupId,
           ownerId: user.id,
-        });
+          ownerNickname: user.nickname,
+        };
+        const payload = generateQRPayload('consume', qrData);
         setQrPayload(payload);
       }
 
@@ -59,17 +65,23 @@ export function TicketDetail() {
 
     // Refresh QR every 30 seconds
     const interval = setInterval(async () => {
-      if (ticket?.status === 'active' && user) {
-        const payload = await generateQRPayload('consume', {
+      if (ticket?.status === 'active' && user && template) {
+        const qrData: ConsumeQRData = {
           ticketId: ticket.id,
+          templateId: template.id,
+          templateName: template.name,
+          templateImage: template.image,
+          groupId: ticket.groupId,
           ownerId: user.id,
-        });
+          ownerNickname: user.nickname,
+        };
+        const payload = generateQRPayload('consume', qrData);
         setQrPayload(payload);
       }
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [id, navigate, user, ticket?.status, ticket?.id]);
+  }, [id, navigate, user, ticket?.status, ticket?.id, ticket?.groupId, template]);
 
   if (loading) {
     return (

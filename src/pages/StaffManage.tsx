@@ -6,8 +6,8 @@ import { Modal } from '../components/Modal';
 import { useAuth } from '../contexts/AuthContext';
 import { useGroups } from '../hooks/useGroups';
 import { db } from '../db';
-import { generateQRPayload } from '../utils/crypto';
-import type { Staff, User } from '../types';
+import { generateQRPayload, type StaffInviteQRData } from '../utils/crypto';
+import type { Staff, User, Group } from '../types';
 
 interface StaffWithUser extends Staff {
   user?: User;
@@ -19,6 +19,7 @@ export function StaffManage() {
   const { removeStaff } = useGroups();
 
   const [staffList, setStaffList] = useState<StaffWithUser[]>([]);
+  const [group, setGroup] = useState<Group | null>(null);
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
   const [qrPayload, setQrPayload] = useState('');
@@ -30,6 +31,11 @@ export function StaffManage() {
     if (!groupId) return;
 
     const load = async () => {
+      // Load group info
+      const g = await db.groups.get(groupId);
+      setGroup(g || null);
+
+      // Load staff with user info
       const staff = await db.staff.where('groupId').equals(groupId).toArray();
       const userIds = staff.map((s) => s.userId);
       const users = await db.users.where('id').anyOf(userIds).toArray();
@@ -48,21 +54,25 @@ export function StaffManage() {
   }, [groupId]);
 
   const handleShowInvite = async () => {
-    if (!user || !groupId) return;
+    if (!user || !groupId || !group) return;
 
-    const payload = await generateQRPayload('staff_invite', {
+    const qrData: StaffInviteQRData = {
       groupId,
+      groupName: group.name,
       inviterId: user.id,
-    });
+    };
+    const payload = generateQRPayload('staff_invite', qrData);
     setQrPayload(payload);
     setShowInvite(true);
 
     // Refresh QR every 60 seconds
-    const interval = setInterval(async () => {
-      const newPayload = await generateQRPayload('staff_invite', {
+    const interval = setInterval(() => {
+      const newQrData: StaffInviteQRData = {
         groupId,
+        groupName: group.name,
         inviterId: user.id,
-      });
+      };
+      const newPayload = generateQRPayload('staff_invite', newQrData);
       setQrPayload(newPayload);
     }, 60000);
 

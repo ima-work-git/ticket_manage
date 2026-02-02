@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
+import { v4 as uuidv4 } from 'uuid';
 import { Layout } from '../components/Layout';
 import { useTemplates } from '../hooks/useTemplates';
 import { useAuth } from '../contexts/AuthContext';
-import { generateQRPayload } from '../utils/crypto';
+import { generateQRPayload, type IssueQRData } from '../utils/crypto';
 
 export function IssueTicket() {
   const { id: groupId } = useParams<{ id: string }>();
@@ -18,27 +19,44 @@ export function IssueTicket() {
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
 
   useEffect(() => {
-    if (!selectedTemplateId || !user) {
+    if (!selectedTemplateId || !user || !groupId) {
       setQrPayload('');
       return;
     }
 
-    const generate = async () => {
+    const template = templates.find((t) => t.id === selectedTemplateId);
+    if (!template) {
+      setQrPayload('');
+      return;
+    }
+
+    const generate = () => {
       setGenerating(true);
-      const payload = await generateQRPayload('issue', {
-        templateId: selectedTemplateId,
+      // Generate a unique ticket ID for each QR generation
+      // This ensures each scan creates a unique ticket
+      const ticketId = uuidv4();
+
+      const qrData: IssueQRData = {
+        ticketId,
+        templateId: template.id,
+        groupId,
+        templateName: template.name,
+        templateImage: template.image,
+        expiresInDays: template.expiresInDays,
         issuerId: user.id,
-      });
+      };
+
+      const payload = generateQRPayload('issue', qrData);
       setQrPayload(payload);
       setGenerating(false);
     };
 
     generate();
 
-    // Refresh QR every 60 seconds
+    // Refresh QR every 60 seconds to generate new ticket ID
     const interval = setInterval(generate, 60000);
     return () => clearInterval(interval);
-  }, [selectedTemplateId, user]);
+  }, [selectedTemplateId, user, groupId, templates]);
 
   if (loading) {
     return (

@@ -1,80 +1,108 @@
-const SIGNING_KEY_NAME = 'ticket_signing_key';
-
-async function getOrCreateSigningKey(): Promise<string> {
-  let key = localStorage.getItem(SIGNING_KEY_NAME);
-  if (!key) {
-    const { v4: uuidv4 } = await import('uuid');
-    key = uuidv4() + uuidv4();
-    localStorage.setItem(SIGNING_KEY_NAME, key);
-  }
-  return key;
+// QR payload types
+export interface IssueQRData {
+  ticketId: string;
+  templateId: string;
+  groupId: string;
+  templateName: string;
+  templateImage?: string;
+  expiresInDays?: number;
+  issuerId: string;
 }
 
-export async function createSignature(data: string): Promise<string> {
-  const key = await getOrCreateSigningKey();
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(key);
-  const messageData = encoder.encode(data);
-
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
-  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+export interface ConsumeQRData {
+  ticketId: string;
+  templateId: string;
+  templateName: string;
+  templateImage?: string;
+  groupId: string;
+  ownerId: string;
+  ownerNickname: string;
 }
 
-export async function verifySignature(
-  data: string,
-  signature: string
-): Promise<boolean> {
-  const expectedSignature = await createSignature(data);
-  return expectedSignature === signature;
+export interface StaffInviteQRData {
+  groupId: string;
+  groupName: string;
+  inviterId: string;
 }
+
+export type QRPayload =
+  | { type: 'issue'; data: IssueQRData; timestamp: number }
+  | { type: 'consume'; data: ConsumeQRData; timestamp: number }
+  | { type: 'staff_invite'; data: StaffInviteQRData; timestamp: number };
+
+// QR expiration times (in milliseconds)
+const QR_EXPIRATION = {
+  issue: 10 * 60 * 1000, // 10 minutes for ticket issuance
+  consume: 5 * 60 * 1000, // 5 minutes for consumption
+  staff_invite: 24 * 60 * 60 * 1000, // 24 hours for staff invite
+};
 
 export function generateQRPayload(
+  type: 'issue',
+  data: IssueQRData
+): string;
+export function generateQRPayload(
+  type: 'consume',
+  data: ConsumeQRData
+): string;
+export function generateQRPayload(
+  type: 'staff_invite',
+  data: StaffInviteQRData
+): string;
+export function generateQRPayload(
   type: 'issue' | 'consume' | 'staff_invite',
-  data: Record<string, string>
-): Promise<string> {
-  return createSignature(JSON.stringify({ type, data })).then((signature) => {
-    const payload = {
-      type,
-      data,
-      timestamp: Date.now(),
-      signature,
-    };
-    return JSON.stringify(payload);
-  });
+  data: IssueQRData | ConsumeQRData | StaffInviteQRData
+): string {
+  const payload = {
+    type,
+    data,
+    timestamp: Date.now(),
+  };
+  return JSON.stringify(payload);
 }
 
-export async function parseQRPayload(
-  raw: string
-): Promise<{ valid: boolean; type?: string; data?: Record<string, string> }> {
-  try {
-    const payload = JSON.parse(raw);
-    const { type, data, timestamp, signature } = payload;
+export interface ParsedQR<T> {
+  valid: boolean;
+  expired?: boolean;
+  type?: string;
+  data?: T;
+}
 
-    // Check if QR is expired (5 minutes)
-    const now = Date.now();
-    if (now - timestamp > 5 * 60 * 1000) {
+export function parseQRPayload(raw: string): ParsedQR<IssueQRData | ConsumeQRData | StaffInviteQRData> {
+  try {
+    const payload = JSON.parse(raw) as QRPayload;
+    const { type, data, timestamp } = payload;
+
+    // Check if required fields exist
+    if (!type || !data || !timestamp) {
       return { valid: false };
     }
 
-    const isValid = await verifySignature(
-      JSON.stringify({ type, data }),
-      signature
-    );
-
-    if (!isValid) {
-      return { valid: false };
+    // Check if QR is expired
+    const now = Date.now();
+    const expiration = QR_EXPIRATION[type] || QR_EXPIRATION.issue;
+    if (now - timestamp > expiration) {
+      return { valid: false, expired: true };
     }
 
     return { valid: true, type, data };
   } catch {
     return { valid: false };
   }
+}
+
+// Type guards for QR data
+export function isIssueQRData(data: unknown): data is IssueQRData {
+  const d = data as IssueQRData;
+  return !!(d?.ticketId && d?.templateId && d?.groupId && d?.issuerId);
+}
+
+export function isConsumeQRData(data: unknown): data is ConsumeQRData {
+  const d = data as ConsumeQRData;
+  return !!(d?.ticketId && d?.templateId && d?.groupId && d?.ownerId);
+}
+
+export function isStaffInviteQRData(data: unknown): data is StaffInviteQRData {
+  const d = data as StaffInviteQRData;
+  return !!(d?.groupId && d?.inviterId);
 }

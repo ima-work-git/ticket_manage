@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import { v4 as uuidv4 } from 'uuid';
 import { Layout } from '../components/Layout';
 import { Modal } from '../components/Modal';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../db';
-import { parseQRPayload } from '../utils/crypto';
-import type { Ticket, TicketTemplate, User } from '../types';
-import { v4 as uuidv4 } from 'uuid';
+import { parseQRPayload, isConsumeQRData, type ConsumeQRData } from '../utils/crypto';
+import { syncTicket, syncActivityLog } from '../services/sync';
+import type { ActivityLog } from '../types';
 
 export function ConsumeTicket() {
   const { id: groupId } = useParams<{ id: string }>();
@@ -15,11 +16,7 @@ export function ConsumeTicket() {
 
   const [scanning, setScanning] = useState(false);
   const [eventName, setEventName] = useState('');
-  const [pendingTicket, setPendingTicket] = useState<{
-    ticket: Ticket;
-    template: TicketTemplate;
-    owner: User;
-  } | null>(null);
+  const [pendingTicket, setPendingTicket] = useState<ConsumeQRData | null>(null);
   const [result, setResult] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -29,31 +26,42 @@ export function ConsumeTicket() {
     if (!user || !groupId) return;
 
     setScanning(false);
-    const parsed = await parseQRPayload(data);
+    const parsed = parseQRPayload(data);
 
-    if (!parsed.valid || !parsed.data || parsed.type !== 'consume') {
+    if (!parsed.valid || parsed.type !== 'consume' || !isConsumeQRData(parsed.data)) {
       setResult({
         type: 'error',
-        message: 'QRコードが無効または期限切れです',
+        message: parsed.expired
+          ? 'QRコードの有効期限が切れています'
+          : 'QRコードが無効です',
       });
       return;
     }
 
+    const qrData = parsed.data as ConsumeQRData;
+
     try {
-      const { ticketId, ownerId } = parsed.data;
-      const ticket = await db.tickets.get(ticketId);
-
-      if (!ticket) {
-        setResult({ type: 'error', message: 'チケットが見つかりません' });
-        return;
-      }
-
-      if (ticket.groupId !== groupId) {
+      // Check if this is for our group
+      if (qrData.groupId !== groupId) {
         setResult({ type: 'error', message: 'このグループのチケットではありません' });
         return;
       }
 
-      if (ticket.status !== 'active') {
+      // Check if ticket was already consumed (check local activity logs)
+      const existingConsumption = await db.activityLogs
+        .where('ticketId')
+        .equals(qrData.ticketId)
+        .filter((log) => log.action === 'consume')
+        .first();
+
+      if (existingConsumption) {
+        setResult({ type: 'error', message: 'このチケットは既に使用済みです' });
+        return;
+      }
+
+      // Also check local tickets table if we have it
+      const localTicket = await db.tickets.get(qrData.ticketId);
+      if (localTicket && localTicket.status !== 'active') {
         const statusMessages: Record<string, string> = {
           used: 'このチケットは既に使用済みです',
           expired: 'このチケットは期限切れです',
@@ -61,25 +69,13 @@ export function ConsumeTicket() {
         };
         setResult({
           type: 'error',
-          message: statusMessages[ticket.status] || 'このチケットは使用できません',
+          message: statusMessages[localTicket.status] || 'このチケットは使用できません',
         });
         return;
       }
 
-      const template = await db.ticketTemplates.get(ticket.templateId);
-      if (!template) {
-        setResult({ type: 'error', message: 'テンプレートが見つかりません' });
-        return;
-      }
-
-      const owner = await db.users.get(ownerId);
-      if (!owner) {
-        setResult({ type: 'error', message: 'チケット所有者が見つかりません' });
-        return;
-      }
-
-      // Show confirmation
-      setPendingTicket({ ticket, template, owner });
+      // Show confirmation with data from QR
+      setPendingTicket(qrData);
     } catch (error) {
       console.error('Scan error:', error);
       setResult({ type: 'error', message: '処理中にエラーが発生しました' });
@@ -89,32 +85,48 @@ export function ConsumeTicket() {
   const handleConfirmConsume = async () => {
     if (!pendingTicket || !user) return;
 
-    const { ticket, template } = pendingTicket;
+    try {
+      // Update local ticket if we have it
+      const localTicket = await db.tickets.get(pendingTicket.ticketId);
+      if (localTicket) {
+        const updatedTicket = {
+          ...localTicket,
+          status: 'used' as const,
+          consumedBy: user.id,
+          consumedAt: new Date(),
+          eventName: eventName.trim() || undefined,
+        };
+        await syncTicket(updatedTicket, 'update');
+      }
 
-    await db.tickets.update(ticket.id, {
-      status: 'used',
-      consumedBy: user.id,
-      consumedAt: new Date(),
-      eventName: eventName.trim() || undefined,
-    });
+      // Create activity log (this is the primary record for offline consumption)
+      const log: ActivityLog = {
+        id: uuidv4(),
+        groupId: pendingTicket.groupId,
+        actorId: user.id,
+        action: 'consume',
+        ticketId: pendingTicket.ticketId,
+        targetUserId: pendingTicket.ownerId,
+        metadata: {
+          templateName: pendingTicket.templateName,
+          eventName: eventName.trim() || undefined,
+          ownerNickname: pendingTicket.ownerNickname,
+        },
+        createdAt: new Date(),
+      };
 
-    await db.activityLogs.add({
-      id: uuidv4(),
-      groupId: ticket.groupId,
-      actorId: user.id,
-      action: 'consume',
-      ticketId: ticket.id,
-      targetUserId: ticket.ownerId,
-      metadata: { templateName: template.name, eventName: eventName.trim() || undefined },
-      createdAt: new Date(),
-    });
+      await syncActivityLog(log);
 
-    setResult({
-      type: 'success',
-      message: `${template.name}を消費しました`,
-    });
-    setPendingTicket(null);
-    setEventName('');
+      setResult({
+        type: 'success',
+        message: `${pendingTicket.templateName}を消費しました`,
+      });
+      setPendingTicket(null);
+      setEventName('');
+    } catch (error) {
+      console.error('Consume error:', error);
+      setResult({ type: 'error', message: '処理中にエラーが発生しました' });
+    }
   };
 
   return (
@@ -210,18 +222,18 @@ export function ConsumeTicket() {
           <div>
             <div className="card mb-4">
               <div className="flex items-center gap-3">
-                <div className="avatar">{pendingTicket.owner.nickname[0]}</div>
+                <div className="avatar">{pendingTicket.ownerNickname[0]}</div>
                 <div>
-                  <div className="card-title">{pendingTicket.owner.nickname}</div>
+                  <div className="card-title">{pendingTicket.ownerNickname}</div>
                   <div className="card-subtitle">チケット所有者</div>
                 </div>
               </div>
             </div>
             <div className="card">
-              {pendingTicket.template.image && (
+              {pendingTicket.templateImage && (
                 <img
-                  src={pendingTicket.template.image}
-                  alt={pendingTicket.template.name}
+                  src={pendingTicket.templateImage}
+                  alt={pendingTicket.templateName}
                   style={{
                     width: '100%',
                     aspectRatio: '16 / 9',
@@ -231,7 +243,7 @@ export function ConsumeTicket() {
                   }}
                 />
               )}
-              <div className="card-title">{pendingTicket.template.name}</div>
+              <div className="card-title">{pendingTicket.templateName}</div>
             </div>
             <p className="mt-4" style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
               このチケットを消費しますか？
