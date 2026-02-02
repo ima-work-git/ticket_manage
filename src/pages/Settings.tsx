@@ -59,12 +59,18 @@ export function Settings() {
     try {
       const result = await restoreTicketsByEmail(supabaseUser.email);
       if (result.success) {
-        setRestoreResult({
-          success: true,
-          message: `${result.ticketsRestored}件のチケットを復元しました`,
-        });
         if (result.ticketsRestored > 0) {
-          setShowRestore(false);
+          setRestoreResult({
+            success: true,
+            message: `${result.ticketsRestored}件のチケットを復元しました`,
+          });
+          // Close modal after short delay
+          setTimeout(() => setShowRestore(false), 1500);
+        } else {
+          setRestoreResult({
+            success: true,
+            message: '復元できるチケットはありませんでした。運営が「受領確認」をスキャンした後に復元可能になります。',
+          });
         }
       } else {
         setRestoreResult({
@@ -72,6 +78,12 @@ export function Settings() {
           message: result.error || '復元に失敗しました',
         });
       }
+    } catch (error) {
+      console.error('Restore error:', error);
+      setRestoreResult({
+        success: false,
+        message: '予期せぬエラーが発生しました',
+      });
     } finally {
       setRestoring(false);
     }
@@ -539,7 +551,9 @@ export function Settings() {
             <div
               style={{
                 padding: 12,
-                background: restoreResult.success ? 'var(--success)' : 'var(--error)',
+                background: restoreResult.success
+                  ? (restoreResult.message.includes('ありませんでした') ? 'var(--warning)' : 'var(--success)')
+                  : 'var(--error)',
                 color: 'white',
                 borderRadius: 8,
                 marginTop: 16,

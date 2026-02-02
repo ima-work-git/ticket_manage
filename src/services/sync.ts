@@ -641,20 +641,34 @@ export async function restoreTicketsByEmail(email: string): Promise<RestoreResul
   }
 
   try {
+    // Create a timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('タイムアウト')), 10000);
+    });
+
     // Search for pending tickets claimed by this email
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: pendingTickets, error } = await (supabase.from('pending_tickets') as any)
+    const queryPromise = (supabase.from('pending_tickets') as any)
       .select('*')
       .eq('claimed_by_email', email)
       .eq('status', 'claimed');
 
+    const { data: pendingTickets, error } = await Promise.race([
+      queryPromise,
+      timeoutPromise,
+    ]);
+
     if (error) {
       console.error('Failed to fetch pending tickets:', error);
-      return { success: false, ticketsRestored: 0, error: 'データの取得に失敗しました' };
+      // Check for specific error types
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return { success: false, ticketsRestored: 0, error: 'データベースの設定が完了していません。運営に連絡してください。' };
+      }
+      return { success: false, ticketsRestored: 0, error: `データの取得に失敗しました: ${error.message || '不明なエラー'}` };
     }
 
     if (!pendingTickets || pendingTickets.length === 0) {
-      return { success: false, ticketsRestored: 0, error: 'このメールアドレスで登録されたチケットが見つかりません' };
+      return { success: true, ticketsRestored: 0, error: undefined };
     }
 
     let restoredCount = 0;
@@ -712,6 +726,10 @@ export async function restoreTicketsByEmail(email: string): Promise<RestoreResul
     return { success: true, ticketsRestored: restoredCount };
   } catch (error) {
     console.error('Restore failed:', error);
-    return { success: false, ticketsRestored: 0, error: '復元中にエラーが発生しました' };
+    const errorMessage = error instanceof Error ? error.message : '不明なエラー';
+    if (errorMessage === 'タイムアウト') {
+      return { success: false, ticketsRestored: 0, error: '接続がタイムアウトしました。ネットワークを確認してください。' };
+    }
+    return { success: false, ticketsRestored: 0, error: `復元中にエラーが発生しました: ${errorMessage}` };
   }
 }

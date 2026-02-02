@@ -117,11 +117,6 @@ export function StaffManage() {
     <Layout
       title="スタッフ管理"
       showBack
-      rightAction={
-        <button className="btn btn-sm btn-primary" onClick={handleShowInvite}>
-          + 招待
-        </button>
-      }
     >
       <div className="container">
         <div className="section">
@@ -189,6 +184,28 @@ export function StaffManage() {
               </div>
             ))
           )}
+        </div>
+
+        {/* Invite section - less prominent */}
+        <div className="section">
+          <div
+            className="card"
+            style={{
+              background: 'var(--surface-secondary)',
+              textAlign: 'center',
+            }}
+          >
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 12 }}>
+              新しいスタッフを追加する
+            </p>
+            <button
+              className="btn btn-secondary"
+              onClick={handleShowInvite}
+              style={{ fontSize: 14 }}
+            >
+              招待QRを表示
+            </button>
+          </div>
         </div>
       </div>
 
