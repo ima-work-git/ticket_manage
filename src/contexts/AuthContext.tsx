@@ -7,7 +7,7 @@ import {
 } from 'react';
 import type { User as AuthSession } from '@supabase/supabase-js';
 import type { User } from '../types';
-import { getCurrentUser, createUser, db } from '../db';
+import { getCurrentUser, db } from '../db';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { initializeSync, pullFromCloud } from '../services/sync';
 import { requestPersistentStorage } from '../utils/storage';
@@ -17,7 +17,8 @@ interface AuthContextType {
   supabaseUser: AuthSession | null;
   loading: boolean;
   isOnline: boolean;
-  login: (nickname: string) => Promise<void>;
+  isFirstTimeUser: boolean; // True if no user has ever logged in on this device
+  loginOffline: () => Promise<void>; // Quick offline login for returning users
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   updateNickname: (nickname: string) => Promise<void>;
@@ -31,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [supabaseUser, setSupabaseUser] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isFirstTimeUser, setIsFirstTimeUser] = useState(true);
 
   // Online/offline handling
   useEffect(() => {
@@ -52,6 +54,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         // Request persistent storage to protect data from automatic cleanup
         requestPersistentStorage();
+
+        // Check if this is a first-time user (no users in local DB)
+        const userCount = await db.users.count();
+        setIsFirstTimeUser(userCount === 0);
 
         // Check for Supabase session first
         if (isSupabaseConfigured() && supabase) {
@@ -80,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             setUser(localUser);
+            setIsFirstTimeUser(false); // User has logged in
 
             // Initialize sync
             if (isOnline) {
@@ -91,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // Fall back to local-only auth
+        // Fall back to local-only auth (for returning users)
         const localUser = await getCurrentUser();
         setUser(localUser || null);
         setLoading(false);
@@ -147,10 +154,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [isOnline]);
 
-  // Local login (nickname only, no cloud sync)
-  const login = async (nickname: string) => {
-    const newUser = await createUser(nickname);
-    setUser(newUser);
+  // Offline login for returning users (uses existing local user)
+  // If online, will still sync with cloud
+  const loginOffline = async () => {
+    const localUser = await getCurrentUser();
+    if (!localUser) {
+      throw new Error('ローカルユーザーが見つかりません。Googleでログインしてください。');
+    }
+
+    setUser(localUser);
+
+    // If online and Supabase is configured, try to sync
+    if (isOnline && isSupabaseConfigured() && supabase) {
+      try {
+        // Check if there's an existing Supabase session
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          setSupabaseUser(session.user);
+          await initializeSync(session.user.id);
+        }
+      } catch (error) {
+        console.error('Cloud sync failed, continuing offline:', error);
+      }
+    }
   };
 
   // Google login via Supabase
@@ -213,7 +239,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         supabaseUser,
         loading,
         isOnline,
-        login,
+        isFirstTimeUser,
+        loginOffline,
         loginWithGoogle,
         logout,
         updateNickname,
