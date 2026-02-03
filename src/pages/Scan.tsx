@@ -24,6 +24,7 @@ export function Scan() {
   const navigate = useNavigate();
   const { user, supabaseUser } = useAuth();
   const [scanning, setScanning] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
   const [result, setResult] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -246,7 +247,11 @@ export function Scan() {
           </p>
           <button
             className="btn btn-primary btn-full"
-            onClick={() => setScanning(true)}
+            onClick={() => {
+              console.log('Scan: Opening scanner, online status:', navigator.onLine);
+              setScannerError(null);
+              setScanning(true);
+            }}
           >
             QRコードをスキャン
           </button>
@@ -269,18 +274,24 @@ export function Scan() {
       {/* Scanner Modal */}
       <Modal
         isOpen={scanning}
-        onClose={() => setScanning(false)}
+        onClose={() => {
+          setScanning(false);
+          setScannerError(null);
+        }}
         title="QRコードをスキャン"
       >
         <div className="qr-scanner">
           <Scanner
             onScan={(result) => {
               if (result?.[0]?.rawValue) {
+                setScannerError(null);
                 handleScan(result[0].rawValue);
               }
             }}
             onError={(error) => {
               console.error('Scanner error:', error);
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              setScannerError(`カメラエラー: ${errorMessage}`);
             }}
             constraints={{ facingMode: 'environment' }}
             styles={{
@@ -289,11 +300,32 @@ export function Scan() {
             }}
           />
         </div>
+        {scannerError && (
+          <div
+            style={{
+              background: 'var(--danger-bg)',
+              border: '1px solid var(--danger)',
+              borderRadius: 8,
+              padding: 12,
+              marginTop: 12,
+            }}
+          >
+            <p style={{ color: 'var(--danger)', fontSize: 14, margin: 0 }}>
+              {scannerError}
+            </p>
+          </div>
+        )}
         <p
           className="text-center mt-4"
           style={{ fontSize: 14, color: 'var(--text-secondary)' }}
         >
           カメラをQRコードに向けてください
+        </p>
+        <p
+          className="text-center"
+          style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}
+        >
+          {navigator.onLine ? '🟢 オンライン' : '🔴 オフライン（受取可能）'}
         </p>
       </Modal>
 
