@@ -85,6 +85,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               await db.users.add(localUser);
             }
 
+            // Store deviceKey in localStorage for offline access
+            localStorage.setItem('deviceKey', session.user.id);
+
             setUser(localUser);
             setIsFirstTimeUser(false); // User has logged in
 
@@ -136,6 +139,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               };
               await db.users.add(localUser);
             }
+
+            // Store deviceKey in localStorage for offline access
+            localStorage.setItem('deviceKey', session.user.id);
 
             setUser(localUser);
 

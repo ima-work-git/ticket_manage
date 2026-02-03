@@ -15,7 +15,9 @@ export function Login() {
     try {
       await loginWithGoogle();
     } catch (err) {
-      setError('Googleログインに失敗しました');
+      console.error('Google login error:', err);
+      const message = err instanceof Error ? err.message : 'Googleログインに失敗しました';
+      setError(message);
       setLoading(false);
     }
   };
