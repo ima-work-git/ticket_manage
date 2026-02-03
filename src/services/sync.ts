@@ -364,34 +364,37 @@ export async function syncPendingTicket(
           claimed_at: pendingTicket.claimedAt?.toISOString(),
         };
 
+        console.log('syncPendingTicket: Sending to Supabase:', {
+          operation,
+          data,
+          hasClaimedByEmail: !!data.claimed_by_email,
+        });
+
         // Add timeout to prevent hanging
         const timeoutPromise = new Promise<{ error: Error }>((resolve) => {
           setTimeout(() => resolve({ error: new Error('Timeout') }), 5000);
         });
 
         let result: { error: unknown };
-        if (operation === 'create') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          result = await Promise.race([
-            (supabase.from('pending_tickets') as any).insert(data),
-            timeoutPromise,
-          ]);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          result = await Promise.race([
-            (supabase.from('pending_tickets') as any).update(data).eq('id', pendingTicket.id),
-            timeoutPromise,
-          ]);
-        }
+        // Always use upsert to handle cases where:
+        // 1. Different staff member confirms receipt (they don't have the record locally)
+        // 2. Record already exists in cloud from issuing staff
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        result = await Promise.race([
+          (supabase.from('pending_tickets') as any).upsert(data, { onConflict: 'id' }),
+          timeoutPromise,
+        ]);
 
         // Check for Supabase error (doesn't throw, returns error object)
         if (result?.error) {
-          console.error('Cloud sync error:', result.error);
+          console.error('syncPendingTicket: Cloud sync error:', result.error);
           addToSyncQueue({
             table: 'pendingTickets',
             operation: operation === 'create' ? 'insert' : 'update',
             data: pendingTicket as unknown as Record<string, unknown>,
           });
+        } else {
+          console.log('syncPendingTicket: Successfully synced to Supabase');
         }
       } catch (error) {
         console.error('Cloud sync failed, queuing:', error);
@@ -738,6 +741,8 @@ export async function restoreTicketsByEmail(email: string, userId: string): Prom
     }
 
     // 2. Also check pending_tickets for any claimed by email (backup method)
+    console.log('restoreTicketsByEmail: Querying pending_tickets by email:', email);
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pendingQueryPromise = (supabase.from('pending_tickets') as any)
       .select('*')
@@ -748,6 +753,13 @@ export async function restoreTicketsByEmail(email: string, userId: string): Prom
       pendingQueryPromise,
       timeoutPromise,
     ]);
+
+    console.log('restoreTicketsByEmail: Query result:', {
+      email,
+      pendingTicketsCount: pendingTickets?.length ?? 0,
+      pendingTickets: pendingTickets,
+      error: pendingError,
+    });
 
     if (pendingError) {
       console.error('Failed to fetch pending tickets:', pendingError);

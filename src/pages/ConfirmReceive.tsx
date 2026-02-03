@@ -48,38 +48,53 @@ export function ConfirmReceive() {
         return;
       }
 
+      // Debug: Log the QR data being processed
+      console.log('ConfirmReceive: Processing QR data:', {
+        ticketId: qrData.ticketId,
+        templateId: qrData.templateId,
+        groupId: qrData.groupId,
+        ownerId: qrData.ownerId,
+        ownerNickname: qrData.ownerNickname,
+        ownerEmail: qrData.ownerEmail,
+      });
+
+      // Warn if ownerEmail is missing (restoration won't work)
+      if (!qrData.ownerEmail) {
+        console.warn('ConfirmReceive: ownerEmail is missing! Ticket restoration will not work for this user.');
+      }
+
       // Find and update the pending ticket
       const pendingTicket = await db.pendingTickets.get(qrData.ticketId);
 
-      if (pendingTicket) {
-        // Update with claimer info
-        const updatedPendingTicket = {
-          ...pendingTicket,
-          status: 'claimed' as const,
-          claimedBy: qrData.ownerId,
-          claimedByNickname: qrData.ownerNickname,
-          claimedByEmail: qrData.ownerEmail, // Google email for reliable restoration
-          claimedAt: new Date(),
-        };
+      const pendingTicketData = pendingTicket ? {
+        ...pendingTicket,
+        status: 'claimed' as const,
+        claimedBy: qrData.ownerId,
+        claimedByNickname: qrData.ownerNickname,
+        claimedByEmail: qrData.ownerEmail,
+        claimedAt: new Date(),
+      } : {
+        id: qrData.ticketId,
+        templateId: qrData.templateId,
+        groupId: qrData.groupId,
+        templateName: qrData.templateName,
+        issuedBy: user.id,
+        issuedAt: new Date(),
+        status: 'claimed' as const,
+        claimedBy: qrData.ownerId,
+        claimedByNickname: qrData.ownerNickname,
+        claimedByEmail: qrData.ownerEmail,
+        claimedAt: new Date(),
+      };
 
-        await syncPendingTicket(updatedPendingTicket, 'update');
-      } else {
-        // Create a new pending ticket record with claimed status
-        // This handles the case where the issuing operator is different from the confirming operator
-        await syncPendingTicket({
-          id: qrData.ticketId,
-          templateId: qrData.templateId,
-          groupId: qrData.groupId,
-          templateName: qrData.templateName,
-          issuedBy: user.id, // We don't know the original issuer, use current user
-          issuedAt: new Date(),
-          status: 'claimed',
-          claimedBy: qrData.ownerId,
-          claimedByNickname: qrData.ownerNickname,
-          claimedByEmail: qrData.ownerEmail, // Google email for reliable restoration
-          claimedAt: new Date(),
-        }, 'create');
-      }
+      console.log('ConfirmReceive: Syncing pending ticket:', {
+        existedLocally: !!pendingTicket,
+        data: pendingTicketData,
+      });
+
+      await syncPendingTicket(pendingTicketData, pendingTicket ? 'update' : 'create');
+
+      console.log('ConfirmReceive: Sync completed successfully');
 
       setResult({
         type: 'success',
