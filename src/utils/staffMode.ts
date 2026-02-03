@@ -1,3 +1,5 @@
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
 const STAFF_MODE_KEY = 'staff_mode_enabled';
 
 export function isStaffMode(): boolean {
@@ -10,6 +12,38 @@ export function enableStaffMode(): void {
 
 export function disableStaffMode(): void {
   localStorage.removeItem(STAFF_MODE_KEY);
+}
+
+// Check if user is staff in any group from cloud
+export async function checkAndEnableStaffMode(userId: string): Promise<boolean> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return isStaffMode();
+  }
+
+  try {
+    // Check if user is in staff table
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from('staff') as any)
+      .select('id')
+      .eq('user_id', userId)
+      .limit(1);
+
+    if (error) {
+      console.error('Failed to check staff status:', error);
+      return isStaffMode();
+    }
+
+    if (data && data.length > 0) {
+      // User is staff in at least one group
+      enableStaffMode();
+      return true;
+    }
+
+    return isStaffMode();
+  } catch (error) {
+    console.error('Failed to check staff status:', error);
+    return isStaffMode();
+  }
 }
 
 export function generateInviteToken(): string {

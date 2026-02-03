@@ -11,6 +11,7 @@ import { getCurrentUser, db } from '../db';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { initializeSync, pullFromCloud } from '../services/sync';
 import { requestPersistentStorage } from '../utils/storage';
+import { checkAndEnableStaffMode } from '../utils/staffMode';
 
 interface AuthContextType {
   user: User | null;
@@ -98,8 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setLoading(false);
             }
 
-            // Sync in background
+            // Check staff status and sync in background
             if (navigator.onLine) {
+              checkAndEnableStaffMode(session.user.id).catch(console.error);
               initializeSync(session.user.id).catch(console.error);
             }
 
@@ -163,8 +165,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem('deviceKey', session.user.id);
           setUser(localUser);
 
-          // Sync in background
+          // Check staff status and sync in background
           if (navigator.onLine) {
+            checkAndEnableStaffMode(session.user.id).catch(console.error);
             initializeSync(session.user.id).catch(console.error);
           }
         } else if (event === 'SIGNED_OUT') {
