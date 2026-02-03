@@ -17,56 +17,68 @@ export function IssueTicket() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [qrPayload, setQrPayload] = useState<string>('');
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
 
   useEffect(() => {
     if (!selectedTemplateId || !user || !groupId) {
       setQrPayload('');
+      setError(null);
       return;
     }
 
     const template = templates.find((t) => t.id === selectedTemplateId);
     if (!template) {
       setQrPayload('');
+      setError(null);
       return;
     }
 
     const generate = async () => {
       setGenerating(true);
-      // Generate a unique ticket ID for each QR generation
-      // This ensures each scan creates a unique ticket
-      const ticketId = uuidv4();
+      setError(null);
 
-      // Create pending ticket in operator's local DB
-      const pendingTicket: PendingTicket = {
-        id: ticketId,
-        templateId: template.id,
-        groupId,
-        templateName: template.name,
-        templateImage: template.image,
-        expiresInDays: template.expiresInDays,
-        issuedBy: user.id,
-        issuedAt: new Date(),
-        status: 'pending',
-      };
+      try {
+        // Generate a unique ticket ID for each QR generation
+        // This ensures each scan creates a unique ticket
+        const ticketId = uuidv4();
 
-      // Save to local DB and sync to cloud
-      await syncPendingTicket(pendingTicket, 'create');
+        // Create pending ticket in operator's local DB
+        const pendingTicket: PendingTicket = {
+          id: ticketId,
+          templateId: template.id,
+          groupId,
+          templateName: template.name,
+          templateImage: template.image,
+          expiresInDays: template.expiresInDays,
+          issuedBy: user.id,
+          issuedAt: new Date(),
+          status: 'pending',
+        };
 
-      const qrData: IssueQRData = {
-        ticketId,
-        templateId: template.id,
-        groupId,
-        templateName: template.name,
-        templateImage: template.image,
-        expiresInDays: template.expiresInDays,
-        issuerId: user.id,
-      };
+        // Save to local DB and sync to cloud
+        await syncPendingTicket(pendingTicket, 'create');
 
-      const payload = generateQRPayload('issue', qrData);
-      setQrPayload(payload);
-      setGenerating(false);
+        const qrData: IssueQRData = {
+          ticketId,
+          templateId: template.id,
+          groupId,
+          templateName: template.name,
+          templateImage: template.image,
+          expiresInDays: template.expiresInDays,
+          issuerId: user.id,
+        };
+
+        const payload = generateQRPayload('issue', qrData);
+        setQrPayload(payload);
+      } catch (err) {
+        console.error('QR生成エラー:', err);
+        setError('QRコードの生成に失敗しました。再度お試しください。');
+        setQrPayload('');
+      } finally {
+        setGenerating(false);
+      }
     };
 
     generate();
@@ -138,16 +150,44 @@ export function IssueTicket() {
               </div>
             )}
 
-            {qrPayload && (
+            {error && (
+              <div className="card" style={{ background: 'var(--danger-bg)', borderColor: 'var(--danger)' }}>
+                <p style={{ color: 'var(--danger)', textAlign: 'center', margin: 0 }}>
+                  {error}
+                </p>
+                <button
+                  className="btn btn-secondary mt-3"
+                  onClick={() => {
+                    const currentId = selectedTemplateId;
+                    setSelectedTemplateId('');
+                    setTimeout(() => setSelectedTemplateId(currentId), 100);
+                  }}
+                  style={{ width: '100%' }}
+                >
+                  再試行
+                </button>
+              </div>
+            )}
+
+            {generating && selectedTemplateId && (
+              <div className="card">
+                <div className="qr-container">
+                  <div className="qr-code">
+                    <div className="spinner" />
+                  </div>
+                  <p style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
+                    QRコードを生成中...
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {qrPayload && !generating && !error && (
               <div className="card">
                 <h3 className="text-center mb-4">発行用QRコード</h3>
                 <div className="qr-container">
                   <div className="qr-code">
-                    {generating ? (
-                      <div className="spinner" />
-                    ) : (
-                      <QRCodeSVG value={qrPayload} size={200} />
-                    )}
+                    <QRCodeSVG value={qrPayload} size={200} />
                   </div>
                   <p
                     style={{
@@ -165,7 +205,7 @@ export function IssueTicket() {
                       marginTop: 8,
                     }}
                   >
-                    ※ QRコードは5分間有効です（自動更新されます）
+                    ※ QRコードは1分間有効です（自動更新されます）
                   </p>
                 </div>
               </div>
