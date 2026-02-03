@@ -74,7 +74,8 @@ export function IssueTicket() {
         setQrPayload(payload);
       } catch (err) {
         console.error('QR生成エラー:', err);
-        setError('QRコードの生成に失敗しました。再度お試しください。');
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        setError(`エラー: ${errorMessage}`);
         setQrPayload('');
       } finally {
         setGenerating(false);
