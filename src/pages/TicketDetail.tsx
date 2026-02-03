@@ -26,6 +26,7 @@ export function TicketDetail() {
   const [qrPayload, setQrPayload] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
+  // Load ticket data
   useEffect(() => {
     if (!id) return;
 
@@ -43,45 +44,41 @@ export function TicketDetail() {
       const g = await db.groups.get(t.groupId);
       setGroup(g || null);
 
-      // Generate QR for consumption (includes all data for offline verification)
-      if (t.status === 'active' && user && tmpl) {
-        const qrData: ConsumeQRData = {
-          ticketId: t.id,
-          templateId: tmpl.id,
-          templateName: tmpl.name,
-          templateImage: tmpl.image,
-          groupId: t.groupId,
-          ownerId: user.id,
-          ownerNickname: user.nickname,
-        };
-        const payload = generateQRPayload('consume', qrData);
-        setQrPayload(payload);
-      }
-
       setLoading(false);
     };
 
     loadTicket();
+  }, [id, navigate]);
 
-    // Refresh QR every 30 seconds
-    const interval = setInterval(async () => {
-      if (ticket?.status === 'active' && user && template) {
-        const qrData: ConsumeQRData = {
-          ticketId: ticket.id,
-          templateId: template.id,
-          templateName: template.name,
-          templateImage: template.image,
-          groupId: ticket.groupId,
-          ownerId: user.id,
-          ownerNickname: user.nickname,
-        };
-        const payload = generateQRPayload('consume', qrData);
-        setQrPayload(payload);
-      }
-    }, 30000);
+  // Generate QR code separately
+  useEffect(() => {
+    if (!ticket || !template || !user || ticket.status !== 'active') {
+      setQrPayload('');
+      return;
+    }
+
+    const generateQR = () => {
+      const qrData: ConsumeQRData = {
+        ticketId: ticket.id,
+        templateId: template.id,
+        templateName: template.name,
+        templateImage: template.image,
+        groupId: ticket.groupId,
+        ownerId: user.id,
+        ownerNickname: user.nickname,
+      };
+      const payload = generateQRPayload('consume', qrData);
+      setQrPayload(payload);
+    };
+
+    // Generate immediately
+    generateQR();
+
+    // Refresh every 30 seconds
+    const interval = setInterval(generateQR, 30000);
 
     return () => clearInterval(interval);
-  }, [id, navigate, user, ticket?.status, ticket?.id, ticket?.groupId, template]);
+  }, [ticket?.id, ticket?.status, ticket?.groupId, template?.id, template?.name, template?.image, user?.id, user?.nickname]);
 
   if (loading) {
     return (
