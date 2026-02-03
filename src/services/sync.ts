@@ -364,12 +364,34 @@ export async function syncPendingTicket(
           claimed_at: pendingTicket.claimedAt?.toISOString(),
         };
 
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise<{ error: Error }>((resolve) => {
+          setTimeout(() => resolve({ error: new Error('Timeout') }), 5000);
+        });
+
+        let result: { error: unknown };
         if (operation === 'create') {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('pending_tickets') as any).insert(data);
+          result = await Promise.race([
+            (supabase.from('pending_tickets') as any).insert(data),
+            timeoutPromise,
+          ]);
         } else {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('pending_tickets') as any).update(data).eq('id', pendingTicket.id);
+          result = await Promise.race([
+            (supabase.from('pending_tickets') as any).update(data).eq('id', pendingTicket.id),
+            timeoutPromise,
+          ]);
+        }
+
+        // Check for Supabase error (doesn't throw, returns error object)
+        if (result?.error) {
+          console.error('Cloud sync error:', result.error);
+          addToSyncQueue({
+            table: 'pendingTickets',
+            operation: operation === 'create' ? 'insert' : 'update',
+            data: pendingTicket as unknown as Record<string, unknown>,
+          });
         }
       } catch (error) {
         console.error('Cloud sync failed, queuing:', error);
