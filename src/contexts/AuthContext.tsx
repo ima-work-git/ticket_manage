@@ -17,8 +17,8 @@ interface AuthContextType {
   supabaseUser: AuthSession | null;
   loading: boolean;
   isOnline: boolean;
-  isFirstTimeUser: boolean; // True if no user has ever logged in on this device
-  loginOffline: () => Promise<void>; // Quick offline login for returning users
+  isFirstTimeUser: boolean;
+  loginOffline: () => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   updateNickname: (nickname: string) => Promise<void>;
@@ -50,27 +50,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Initialize auth
   useEffect(() => {
+    let mounted = true;
+
     const initialize = async () => {
       try {
-        // Request persistent storage to protect data from automatic cleanup
+        // Request persistent storage
         requestPersistentStorage();
 
-        // Check if this is a first-time user (no users in local DB)
+        // Check if first-time user
         const userCount = await db.users.count();
-        setIsFirstTimeUser(userCount === 0);
+        if (mounted) setIsFirstTimeUser(userCount === 0);
 
-        // Check for Supabase session first
+        // Check for Supabase session with timeout
         if (isSupabaseConfigured() && supabase) {
-          const { data: { session } } = await supabase.auth.getSession();
+          const sessionPromise = supabase.auth.getSession();
+          const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) => {
+            setTimeout(() => resolve({ data: { session: null } }), 5000);
+          });
+
+          const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
 
           if (session?.user) {
-            setSupabaseUser(session.user);
+            if (mounted) setSupabaseUser(session.user);
 
-            // Get or create local user linked to Supabase user
             let localUser = await db.users.get(session.user.id);
 
             if (!localUser) {
-              // Create local user from Supabase profile
               const nickname = session.user.user_metadata?.name ||
                               session.user.user_metadata?.full_name ||
                               session.user.email?.split('@')[0] ||
@@ -85,83 +90,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               await db.users.add(localUser);
             }
 
-            // Store deviceKey in localStorage for offline access
             localStorage.setItem('deviceKey', session.user.id);
 
-            setUser(localUser);
-            setIsFirstTimeUser(false); // User has logged in
-
-            // Initialize sync
-            if (isOnline) {
-              await initializeSync(session.user.id);
+            if (mounted) {
+              setUser(localUser);
+              setIsFirstTimeUser(false);
+              setLoading(false);
             }
 
-            setLoading(false);
+            // Sync in background
+            if (navigator.onLine) {
+              initializeSync(session.user.id).catch(console.error);
+            }
+
             return;
           }
         }
 
-        // Fall back to local-only auth (for returning users)
+        // Fall back to local auth
         const localUser = await getCurrentUser();
-        setUser(localUser || null);
-        setLoading(false);
+        if (mounted) {
+          setUser(localUser || null);
+          setLoading(false);
+        }
       } catch (error) {
         console.error('Auth initialization failed:', error);
-        // Fall back to local auth on error
-        const localUser = await getCurrentUser();
-        setUser(localUser || null);
-        setLoading(false);
+        if (mounted) {
+          try {
+            const localUser = await getCurrentUser();
+            setUser(localUser || null);
+          } catch {
+            setUser(null);
+          }
+          setLoading(false);
+        }
       }
     };
 
     initialize();
 
-    // Listen for Supabase auth changes
-    if (isSupabaseConfigured() && supabase) {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (event, session) => {
-          if (event === 'SIGNED_IN' && session?.user) {
-            setSupabaseUser(session.user);
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-            let localUser = await db.users.get(session.user.id);
+  // Listen for Supabase auth changes
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supabase) return;
 
-            if (!localUser) {
-              const nickname = session.user.user_metadata?.name ||
-                              session.user.user_metadata?.full_name ||
-                              session.user.email?.split('@')[0] ||
-                              'ユーザー';
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session?.user) {
+          setSupabaseUser(session.user);
 
-              localUser = {
-                id: session.user.id,
-                nickname,
-                deviceKey: session.user.id,
-                createdAt: new Date(),
-              };
-              await db.users.add(localUser);
-            }
+          let localUser = await db.users.get(session.user.id);
 
-            // Store deviceKey in localStorage for offline access
-            localStorage.setItem('deviceKey', session.user.id);
+          if (!localUser) {
+            const nickname = session.user.user_metadata?.name ||
+                            session.user.user_metadata?.full_name ||
+                            session.user.email?.split('@')[0] ||
+                            'ユーザー';
 
-            setUser(localUser);
-
-            // Sync on sign in
-            if (navigator.onLine) {
-              await initializeSync(session.user.id);
-            }
-          } else if (event === 'SIGNED_OUT') {
-            setSupabaseUser(null);
-            // Keep local user for offline access
+            localUser = {
+              id: session.user.id,
+              nickname,
+              deviceKey: session.user.id,
+              createdAt: new Date(),
+            };
+            await db.users.add(localUser);
           }
+
+          localStorage.setItem('deviceKey', session.user.id);
+          setUser(localUser);
+
+          // Sync in background
+          if (navigator.onLine) {
+            initializeSync(session.user.id).catch(console.error);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setSupabaseUser(null);
         }
-      );
+      }
+    );
 
-      return () => subscription.unsubscribe();
-    }
-  }, [isOnline]);
+    return () => subscription.unsubscribe();
+  }, []);
 
-  // Offline login for returning users (uses existing local user)
-  // If online, will still sync with cloud
   const loginOffline = async () => {
     const localUser = await getCurrentUser();
     if (!localUser) {
@@ -170,22 +184,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setUser(localUser);
 
-    // If online and Supabase is configured, try to sync
     if (isOnline && isSupabaseConfigured() && supabase) {
       try {
-        // Check if there's an existing Supabase session
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
           setSupabaseUser(session.user);
-          await initializeSync(session.user.id);
+          initializeSync(session.user.id).catch(console.error);
         }
       } catch (error) {
-        console.error('Cloud sync failed, continuing offline:', error);
+        console.error('Cloud sync failed:', error);
       }
     }
   };
 
-  // Google login via Supabase
   const loginWithGoogle = async () => {
     if (!isSupabaseConfigured() || !supabase) {
       throw new Error('Cloud機能が設定されていません');
@@ -203,23 +214,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Logout
   const logout = async () => {
     if (supabase) {
       await supabase.auth.signOut();
     }
     setSupabaseUser(null);
-    // Keep local user data for offline access
   };
 
-  // Update nickname
   const updateNickname = async (nickname: string) => {
     if (!user) return;
 
     await db.users.update(user.id, { nickname });
     setUser({ ...user, nickname });
 
-    // Sync to cloud if available
     if (isSupabaseConfigured() && supabase && supabaseUser && isOnline) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -232,7 +239,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Manual sync trigger
   const syncNow = async () => {
     if (!user || !isOnline || !isSupabaseConfigured()) return;
     await pullFromCloud(user.id);
