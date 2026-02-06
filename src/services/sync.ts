@@ -61,6 +61,39 @@ function toCamelCase<T>(obj: Record<string, unknown>): T {
   return result as T;
 }
 
+// Helper for cloud sync operations
+type SyncOp = 'insert' | 'update' | 'delete';
+
+async function syncToCloud(
+  tableName: string,
+  supabaseTable: string,
+  operation: SyncOp,
+  data: Record<string, unknown>,
+  entityId: string
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+
+  if (isOnline && supabase) {
+    try {
+      if (operation === 'insert') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from(supabaseTable) as any).insert(data);
+      } else if (operation === 'update') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from(supabaseTable) as any).update(data).eq('id', entityId);
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from(supabaseTable) as any).delete().eq('id', entityId);
+      }
+    } catch (error) {
+      console.error(`Cloud sync failed for ${supabaseTable}:`, error);
+      addToSyncQueue({ table: tableName, operation, data });
+    }
+  } else {
+    addToSyncQueue({ table: tableName, operation, data });
+  }
+}
+
 // Process pending sync operations
 async function processSyncQueue(): Promise<void> {
   if (!isOnline || !supabase) return;
@@ -106,236 +139,124 @@ async function processSyncQueue(): Promise<void> {
 }
 
 // Sync functions for each table
-export async function syncGroup(group: Group, operation: 'insert' | 'update' | 'delete'): Promise<void> {
-  // Always save locally first
+export async function syncGroup(group: Group, operation: SyncOp): Promise<void> {
   if (operation === 'insert' || operation === 'update') {
     await db.groups.put(group);
   } else {
     await db.groups.delete(group.id);
   }
 
-  // Queue for cloud sync
-  if (isSupabaseConfigured()) {
-    if (isOnline && supabase) {
-      try {
-        const data = {
-          id: group.id,
-          name: group.name,
-          image_url: group.image,
-          owner_id: group.ownerId,
-          created_at: group.createdAt.toISOString(),
-        };
+  const data = {
+    id: group.id,
+    name: group.name,
+    image_url: group.image,
+    owner_id: group.ownerId,
+    created_at: group.createdAt.toISOString(),
+  };
 
-        if (operation === 'insert') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('groups') as any).insert(data);
-        } else if (operation === 'update') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('groups') as any).update(data).eq('id', group.id);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('groups') as any).delete().eq('id', group.id);
-        }
-      } catch (error) {
-        console.error('Cloud sync failed, queuing:', error);
-        addToSyncQueue({ table: 'groups', operation, data: group as unknown as Record<string, unknown> });
-      }
-    } else {
-      addToSyncQueue({ table: 'groups', operation, data: group as unknown as Record<string, unknown> });
-    }
-  }
+  await syncToCloud('groups', 'groups', operation, data, group.id);
 }
 
-export async function syncStaff(staff: Staff, operation: 'insert' | 'update' | 'delete'): Promise<void> {
+export async function syncStaff(staff: Staff, operation: SyncOp): Promise<void> {
   if (operation === 'insert' || operation === 'update') {
     await db.staff.put(staff);
   } else {
     await db.staff.delete(staff.id);
   }
 
-  if (isSupabaseConfigured()) {
-    if (isOnline && supabase) {
-      try {
-        const data = {
-          id: staff.id,
-          group_id: staff.groupId,
-          user_id: staff.userId,
-          role: staff.role,
-          invited_by: staff.invitedBy,
-          created_at: staff.createdAt.toISOString(),
-        };
+  const data = {
+    id: staff.id,
+    group_id: staff.groupId,
+    user_id: staff.userId,
+    role: staff.role,
+    invited_by: staff.invitedBy,
+    created_at: staff.createdAt.toISOString(),
+  };
 
-        if (operation === 'insert') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('staff') as any).insert(data);
-        } else if (operation === 'update') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('staff') as any).update(data).eq('id', staff.id);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('staff') as any).delete().eq('id', staff.id);
-        }
-      } catch (error) {
-        console.error('Cloud sync failed, queuing:', error);
-        addToSyncQueue({ table: 'staff', operation, data: staff as unknown as Record<string, unknown> });
-      }
-    } else {
-      addToSyncQueue({ table: 'staff', operation, data: staff as unknown as Record<string, unknown> });
-    }
-  }
+  await syncToCloud('staff', 'staff', operation, data, staff.id);
 }
 
-export async function syncIdolMember(member: IdolMember, operation: 'insert' | 'update' | 'delete'): Promise<void> {
+export async function syncIdolMember(member: IdolMember, operation: SyncOp): Promise<void> {
   if (operation === 'insert' || operation === 'update') {
     await db.idolMembers.put(member);
   } else {
     await db.idolMembers.delete(member.id);
   }
 
-  if (isSupabaseConfigured()) {
-    if (isOnline && supabase) {
-      try {
-        const data = {
-          id: member.id,
-          group_id: member.groupId,
-          name: member.name,
-          image_url: member.image,
-          status: member.status,
-          graduated_at: member.graduatedAt?.toISOString(),
-          created_at: member.createdAt.toISOString(),
-        };
+  const data = {
+    id: member.id,
+    group_id: member.groupId,
+    name: member.name,
+    image_url: member.image,
+    status: member.status,
+    graduated_at: member.graduatedAt?.toISOString(),
+    created_at: member.createdAt.toISOString(),
+  };
 
-        if (operation === 'insert') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('idol_members') as any).insert(data);
-        } else if (operation === 'update') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('idol_members') as any).update(data).eq('id', member.id);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('idol_members') as any).delete().eq('id', member.id);
-        }
-      } catch (error) {
-        console.error('Cloud sync failed, queuing:', error);
-        addToSyncQueue({ table: 'idolMembers', operation, data: member as unknown as Record<string, unknown> });
-      }
-    } else {
-      addToSyncQueue({ table: 'idolMembers', operation, data: member as unknown as Record<string, unknown> });
-    }
-  }
+  await syncToCloud('idolMembers', 'idol_members', operation, data, member.id);
 }
 
-export async function syncTicketTemplate(template: TicketTemplate, operation: 'insert' | 'update' | 'delete'): Promise<void> {
+export async function syncTicketTemplate(template: TicketTemplate, operation: SyncOp): Promise<void> {
   if (operation === 'insert' || operation === 'update') {
     await db.ticketTemplates.put(template);
   } else {
     await db.ticketTemplates.delete(template.id);
   }
 
-  if (isSupabaseConfigured()) {
-    if (isOnline && supabase) {
-      try {
-        const data = {
-          id: template.id,
-          group_id: template.groupId,
-          name: template.name,
-          description: template.description,
-          image_url: template.image,
-          target_member_id: template.targetMemberId,
-          expires_in_days: template.expiresInDays,
-          on_graduation: template.onGraduation,
-          created_at: template.createdAt.toISOString(),
-        };
+  const data = {
+    id: template.id,
+    group_id: template.groupId,
+    name: template.name,
+    description: template.description,
+    image_url: template.image,
+    target_member_id: template.targetMemberId,
+    expires_in_days: template.expiresInDays,
+    on_graduation: template.onGraduation,
+    created_at: template.createdAt.toISOString(),
+  };
 
-        if (operation === 'insert') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('ticket_templates') as any).insert(data);
-        } else if (operation === 'update') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('ticket_templates') as any).update(data).eq('id', template.id);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('ticket_templates') as any).delete().eq('id', template.id);
-        }
-      } catch (error) {
-        console.error('Cloud sync failed, queuing:', error);
-        addToSyncQueue({ table: 'ticketTemplates', operation, data: template as unknown as Record<string, unknown> });
-      }
-    } else {
-      addToSyncQueue({ table: 'ticketTemplates', operation, data: template as unknown as Record<string, unknown> });
-    }
-  }
+  await syncToCloud('ticketTemplates', 'ticket_templates', operation, data, template.id);
 }
 
-export async function syncTicket(ticket: Ticket, operation: 'insert' | 'update' | 'delete'): Promise<void> {
+export async function syncTicket(ticket: Ticket, operation: SyncOp): Promise<void> {
   if (operation === 'insert' || operation === 'update') {
     await db.tickets.put(ticket);
   } else {
     await db.tickets.delete(ticket.id);
   }
 
-  if (isSupabaseConfigured()) {
-    if (isOnline && supabase) {
-      try {
-        const data = {
-          id: ticket.id,
-          template_id: ticket.templateId,
-          group_id: ticket.groupId,
-          owner_id: ticket.ownerId,
-          issued_by: ticket.issuedBy,
-          issued_at: ticket.issuedAt.toISOString(),
-          status: ticket.status,
-          expires_at: ticket.expiresAt?.toISOString(),
-          consumed_by: ticket.consumedBy,
-          consumed_at: ticket.consumedAt?.toISOString(),
-          event_name: ticket.eventName,
-        };
+  const data = {
+    id: ticket.id,
+    template_id: ticket.templateId,
+    group_id: ticket.groupId,
+    owner_id: ticket.ownerId,
+    issued_by: ticket.issuedBy,
+    issued_at: ticket.issuedAt.toISOString(),
+    status: ticket.status,
+    expires_at: ticket.expiresAt?.toISOString(),
+    consumed_by: ticket.consumedBy,
+    consumed_at: ticket.consumedAt?.toISOString(),
+    event_name: ticket.eventName,
+  };
 
-        if (operation === 'insert') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('tickets') as any).insert(data);
-        } else if (operation === 'update') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('tickets') as any).update(data).eq('id', ticket.id);
-        } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (supabase.from('tickets') as any).delete().eq('id', ticket.id);
-        }
-      } catch (error) {
-        console.error('Cloud sync failed, queuing:', error);
-        addToSyncQueue({ table: 'tickets', operation, data: ticket as unknown as Record<string, unknown> });
-      }
-    } else {
-      addToSyncQueue({ table: 'tickets', operation, data: ticket as unknown as Record<string, unknown> });
-    }
-  }
+  await syncToCloud('tickets', 'tickets', operation, data, ticket.id);
 }
 
 export async function syncActivityLog(log: ActivityLog): Promise<void> {
   await db.activityLogs.put(log);
 
-  if (isSupabaseConfigured()) {
-    if (isOnline && supabase) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from('activity_logs') as any).insert({
-          id: log.id,
-          group_id: log.groupId,
-          actor_id: log.actorId,
-          action: log.action,
-          ticket_id: log.ticketId,
-          target_user_id: log.targetUserId,
-          metadata: log.metadata,
-          created_at: log.createdAt.toISOString(),
-        });
-      } catch (error) {
-        console.error('Cloud sync failed, queuing:', error);
-        addToSyncQueue({ table: 'activityLogs', operation: 'insert', data: log as unknown as Record<string, unknown> });
-      }
-    } else {
-      addToSyncQueue({ table: 'activityLogs', operation: 'insert', data: log as unknown as Record<string, unknown> });
-    }
-  }
+  const data = {
+    id: log.id,
+    group_id: log.groupId,
+    actor_id: log.actorId,
+    action: log.action,
+    ticket_id: log.ticketId,
+    target_user_id: log.targetUserId,
+    metadata: log.metadata,
+    created_at: log.createdAt.toISOString(),
+  };
+
+  await syncToCloud('activityLogs', 'activity_logs', 'insert', data, log.id);
 }
 
 export async function syncPendingTicket(
@@ -542,103 +463,6 @@ export async function pullFromCloud(userId: string): Promise<void> {
   } catch (error) {
     console.error('Pull from cloud failed:', error);
   }
-}
-
-// Claim a pending ticket (for QR code flow)
-export async function claimPendingTicket(claimToken: string, userId: string): Promise<Ticket | null> {
-  if (!isOnline || !supabase) {
-    throw new Error('オンライン接続が必要です');
-  }
-
-  try {
-    // Find the pending ticket
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: pending, error: fetchError } = await (supabase.from('pending_tickets') as any)
-      .select('*')
-      .eq('claim_token', claimToken)
-      .is('claimed_by', null)
-      .single();
-
-    if (fetchError || !pending) {
-      throw new Error('チケットが見つからないか、既に受け取り済みです');
-    }
-
-    // Check expiration
-    if (pending.expires_at && new Date(pending.expires_at) < new Date()) {
-      throw new Error('このチケットは有効期限切れです');
-    }
-
-    // Claim the pending ticket
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: claimError } = await (supabase.from('pending_tickets') as any)
-      .update({
-        claimed_by: userId,
-        claimed_at: new Date().toISOString(),
-      })
-      .eq('id', pending.id)
-      .is('claimed_by', null);
-
-    if (claimError) {
-      throw new Error('チケットの受け取りに失敗しました');
-    }
-
-    // Create the actual ticket
-    const ticketId = crypto.randomUUID();
-    const ticket: Ticket = {
-      id: ticketId,
-      templateId: pending.template_id,
-      groupId: pending.group_id,
-      ownerId: userId,
-      issuedBy: pending.issued_by,
-      issuedAt: new Date(pending.issued_at),
-      status: 'active',
-      expiresAt: pending.expires_at ? new Date(pending.expires_at) : undefined,
-    };
-
-    // Save to cloud
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from('tickets') as any).insert({
-      id: ticket.id,
-      template_id: ticket.templateId,
-      group_id: ticket.groupId,
-      owner_id: ticket.ownerId,
-      issued_by: ticket.issuedBy,
-      issued_at: ticket.issuedAt.toISOString(),
-      status: ticket.status,
-      expires_at: ticket.expiresAt?.toISOString(),
-    });
-
-    // Save locally
-    await db.tickets.put(ticket);
-
-    return ticket;
-  } catch (error) {
-    console.error('Claim ticket failed:', error);
-    throw error;
-  }
-}
-
-// Create a pending ticket for QR distribution
-export async function createPendingTicket(
-  templateId: string,
-  groupId: string,
-  issuedBy: string,
-  expiresAt?: Date
-): Promise<string> {
-  const claimToken = crypto.randomUUID();
-
-  if (isOnline && supabase) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from('pending_tickets') as any).insert({
-      claim_token: claimToken,
-      template_id: templateId,
-      group_id: groupId,
-      issued_by: issuedBy,
-      expires_at: expiresAt?.toISOString(),
-    });
-  }
-
-  return claimToken;
 }
 
 // Initialize sync on app start

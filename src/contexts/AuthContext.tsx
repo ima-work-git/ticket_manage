@@ -28,6 +28,29 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+// Helper to create or get local user from Supabase session
+async function getOrCreateLocalUser(sessionUser: AuthSession): Promise<User> {
+  let localUser = await db.users.get(sessionUser.id);
+
+  if (!localUser) {
+    const nickname = sessionUser.user_metadata?.name ||
+                    sessionUser.user_metadata?.full_name ||
+                    sessionUser.email?.split('@')[0] ||
+                    'ユーザー';
+
+    localUser = {
+      id: sessionUser.id,
+      nickname,
+      deviceKey: sessionUser.id,
+      createdAt: new Date(),
+    };
+    await db.users.add(localUser);
+  }
+
+  localStorage.setItem('deviceKey', sessionUser.id);
+  return localUser;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<AuthSession | null>(null);
@@ -74,24 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (session?.user) {
             if (mounted) setSupabaseUser(session.user);
 
-            let localUser = await db.users.get(session.user.id);
-
-            if (!localUser) {
-              const nickname = session.user.user_metadata?.name ||
-                              session.user.user_metadata?.full_name ||
-                              session.user.email?.split('@')[0] ||
-                              'ユーザー';
-
-              localUser = {
-                id: session.user.id,
-                nickname,
-                deviceKey: session.user.id,
-                createdAt: new Date(),
-              };
-              await db.users.add(localUser);
-            }
-
-            localStorage.setItem('deviceKey', session.user.id);
+            const localUser = await getOrCreateLocalUser(session.user);
 
             if (mounted) {
               setUser(localUser);
@@ -145,24 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'SIGNED_IN' && session?.user) {
           setSupabaseUser(session.user);
 
-          let localUser = await db.users.get(session.user.id);
-
-          if (!localUser) {
-            const nickname = session.user.user_metadata?.name ||
-                            session.user.user_metadata?.full_name ||
-                            session.user.email?.split('@')[0] ||
-                            'ユーザー';
-
-            localUser = {
-              id: session.user.id,
-              nickname,
-              deviceKey: session.user.id,
-              createdAt: new Date(),
-            };
-            await db.users.add(localUser);
-          }
-
-          localStorage.setItem('deviceKey', session.user.id);
+          const localUser = await getOrCreateLocalUser(session.user);
           setUser(localUser);
 
           // Check staff status and sync in background

@@ -84,13 +84,6 @@ export interface ActivityLog {
   createdAt: Date;
 }
 
-export interface QRPayload {
-  type: 'issue' | 'consume' | 'staff_invite';
-  data: Record<string, string>;
-  timestamp: number;
-  signature: string;
-}
-
 // Pending ticket - issued by staff, waiting for fan to claim
 export type PendingTicketStatus = 'pending' | 'claimed' | 'expired';
 
